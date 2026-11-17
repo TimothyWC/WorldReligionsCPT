@@ -15,7 +15,7 @@
 
   /* ---------- saved progress (per browser) ---------- */
   var SAVE_KEY = 'phosphor.save.v1';
-  var save = { lv: {}, music: 80, sfx: 80, calm: false, auto: true, skin: 0, tint: 0 };
+  var save = { lv: {}, music: 80, sfx: 80, calm: false, auto: true, skin: 0, tint: 0, offset: 0 };
   function loadSave() {
     try {
       var j = JSON.parse(root.localStorage.getItem(SAVE_KEY) || 'null');
@@ -144,8 +144,10 @@
     for (var i = 0; i < 3; i++) ringFx(s.x + i * 0.4, s.y + i * 0.6, i === 1 ? 3 : 2, 2 + i);
     spark(s.x, s.y, 40, 2, 12, { life: 0.9, g: 9 }); spark(s.x, s.y, 24, 3, 9, { life: 0.8, line: true, size: 0.06 });
     flash(0.3, 0);
+    var before = G.custom ? 0 : unlockedSkins(totalCores());
     if (G.practice) r.p = 100;
     else { r.n = 100; r.done = 1; r.cores |= G.coins; }
+    G.newGlyph = !G.custom && unlockedSkins(totalCores()) > before;
     persist();
   }
 
@@ -157,6 +159,7 @@
     ui.doneInfo.textContent = G.practice
       ? L.name + ' finished with checkpoints. Next step: one clean run in normal mode.'
       : L.name + ' cleared' + (bits(r.cores) >= L.coins ? (L.coins ? ' with every core recovered.' : '.') : '. ' + (L.coins - bits(r.cores)) + ' core' + (L.coins - bits(r.cores) === 1 ? '' : 's') + ' still out there.');
+    if (G.newGlyph) ui.doneInfo.textContent += ' New glyph unlocked: pick it in Settings.';
     ui.stAtt.textContent = G.attempts; ui.stJumps.textContent = G.jumps; ui.stCores.textContent = n + '/' + L.coins;
     ui.next.hidden = last;
     ui.next.className = last ? '' : 'primary';
@@ -166,6 +169,11 @@
   }
 
   function bits(m) { var n = 0; while (m) { n += m & 1; m >>= 1; } return n; }
+
+  /* glyphs unlock with cores collected in the built-in levels */
+  var SKIN_COST = [0, 0, 2, 4, 6, 9];
+  function totalCores() { var n = 0; LV.forEach(function (L) { n += bits(rec(L.id).cores); }); return n; }
+  function unlockedSkins(n) { var k = 0; for (var i = 0; i < SKIN_COST.length; i++) if (n >= SKIN_COST[i]) k++; return k; }
 
   function pause() {
     if (G.mode !== 'play') return;
@@ -290,11 +298,14 @@
   function advance(dt) {
     var L = G.L, s = G.s, play = G.mode === 'play';
     G.target += dt * L.bpm / 60;
-    if (play && (G.scale || 1) === 1) {
+    if (play && (G.scale || 1) === 1 && au('ready')) {
       var sb = au('songBeat');
       if (typeof sb === 'number' && isFinite(sb)) {
+        // what you hear lags the audio clock by the output latency (plus the player's own offset, for Bluetooth)
+        var lat = au('latency');
+        sb -= ((typeof lat === 'number' && lat > 0 && lat < 0.5 ? lat : 0) + save.offset / 1000) * L.bpm / 60;
         var err = sb - G.target;
-        if (Math.abs(err) > 0.45) au('playSong', L.song, Math.max(0, G.target));   // big hiccup: move the music, not the player
+        if (Math.abs(err) > 0.6) au('playSong', L.song, Math.max(0, G.target));    // big hiccup: move the music, not the player
         else G.target += err * 0.08;
       }
     }
@@ -440,7 +451,13 @@
 
   function buildPicks() {
     var s = '', t = '', i;
-    for (i = 0; i < R.SKINS; i++) s += '<button data-skin="' + i + '" aria-label="Glyph ' + (i + 1) + '" aria-pressed="' + (save.skin === i) + '"><canvas width="68" height="68"></canvas></button>';
+    var have = totalCores();
+    for (i = 0; i < R.SKINS; i++) {
+      var need = SKIN_COST[i] || 0, locked = have < need;
+      s += '<button data-skin="' + i + '" aria-label="Glyph ' + (i + 1) + (locked ? ', needs ' + need + ' cores' : '') + '" aria-pressed="' + (save.skin === i) + '"' + (locked ? ' disabled' : '') + '>' +
+        '<canvas width="68" height="68"></canvas>' + (locked ? '<em>' + need + '</em>' : '') + '</button>';
+    }
+    ui.skinNote.textContent = have + ' core' + (have === 1 ? '' : 's') + ' collected. Locked glyphs show how many they need.';
     for (i = 0; i < R.TINTS.length; i++) t += '<button data-tint="' + i + '" aria-label="Colour ' + (i + 1) + '" aria-pressed="' + (save.tint === i) + '"><i style="background:' + css(R.TINTS[i]) + '"></i></button>';
     ui.skins.innerHTML = s; ui.tints.innerHTML = t;
     var cs = ui.skins.querySelectorAll('canvas');
@@ -450,6 +467,7 @@
   function openSettings(from) {
     G.back = from;
     ui.volMusic.value = save.music; ui.volSfx.value = save.sfx; ui.calm.checked = save.calm; ui.auto.checked = save.auto;
+    ui.offset.value = save.offset; ui.offsetOut.textContent = save.offset + ' ms';
     buildPicks();
     show('settings');
   }
@@ -546,9 +564,10 @@
     ui.volMusic.addEventListener('input', function () { save.music = +ui.volMusic.value; au('setMusicVolume', save.music / 100); });
     ui.volSfx.addEventListener('input', function () { save.sfx = +ui.volSfx.value; au('setSfxVolume', save.sfx / 100); });
     ui.volSfx.addEventListener('change', function () { au('sfx', 'coin'); });
+    ui.offset.addEventListener('input', function () { save.offset = +ui.offset.value; ui.offsetOut.textContent = save.offset + ' ms'; });
     ui.calm.addEventListener('change', function () { save.calm = ui.calm.checked; });
     ui.auto.addEventListener('change', function () { save.auto = ui.auto.checked; });
-    ui.skins.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { save.skin = +b.getAttribute('data-skin'); buildPicks(); } });
+    ui.skins.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b && !b.disabled) { save.skin = +b.getAttribute('data-skin'); buildPicks(); } });
     ui.tints.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { save.tint = +b.getAttribute('data-tint'); buildPicks(); } });
     var armed = 0;
     $('btnReset').addEventListener('click', function () {
@@ -571,7 +590,7 @@
       msg: $('hudMsg'), toast: $('toast'), cpBar: $('cpBar'), levels: $('levels'),
       pauseInfo: $('pauseInfo'), toggleMode: $('btnToggleMode'), doneTitle: $('doneTitle'), doneInfo: $('doneInfo'),
       stAtt: $('stAtt'), stJumps: $('stJumps'), stCores: $('stCores'), next: $('btnNext'), again: $('btnAgain'),
-      volMusic: $('volMusic'), volSfx: $('volSfx'), calm: $('optCalm'), auto: $('optAuto'), skins: $('skins'), tints: $('tints'),
+      volMusic: $('volMusic'), volSfx: $('volSfx'), offset: $('audioOffset'), offsetOut: $('audioOffsetOut'), calm: $('optCalm'), auto: $('optAuto'), skins: $('skins'), tints: $('tints'), skinNote: $('skinNote'),
       setClose: $('btnSetClose'), howClose: $('btnHowClose'), quit: $('btnQuit'), doneMenu: $('btnDoneMenu')
     };
     if ($('editor')) SCREENS.push('editor');

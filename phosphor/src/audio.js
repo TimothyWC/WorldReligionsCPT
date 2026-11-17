@@ -99,8 +99,8 @@
 
   var BASS_LV = [0.185, 0.078, 0.14];   // 0 clean saw, 1 gritty square+saw, 2 reese (two detuned saws)
   function vBass(S, t, d, m, v, br) {
-    var c = S.c, k = S.def.bass, f = mtof(m), e = t + d + 0.07, fl = c.createBiquadFilter();
-    var g = adsr(c, t, d, v * BASS_LV[k], 0.005, 0.05, 0.8), lo = 160 + 1000 * br, o;
+    var c = S.c, k = S.def.bass, f = mtof(m), e = t + d + 0.05, fl = c.createBiquadFilter();
+    var g = adsr(c, t, d, v * BASS_LV[k], 0.005, 0.035, 0.8), lo = 160 + 1000 * br, o;
     o = osc(S, k === 1 ? 'square' : 'sawtooth', f, t, e, k === 2 ? -14 : 0); o.connect(fl);
     if (k) osc(S, 'sawtooth', f, t, e, k === 2 ? 14 : 6).connect(fl);
     fl.type = 'lowpass'; fl.Q.value = k === 1 ? 5 : 2.5;
@@ -108,7 +108,7 @@
     fl.connect(g); g.connect(S.duck); free(o, g);
   }
   function vPluck(S, t, d, m, v, pan) {
-    var c = S.c, f = mtof(m), fl = c.createBiquadFilter(), g = decay(c, t, d, v * 0.5, 0.003);
+    var c = S.c, f = mtof(m), fl = c.createBiquadFilter(), g = decay(c, t, d, v * 0.42, 0.003);
     var o = osc(S, S.def.pluck || 'sawtooth', f, t, t + d + 0.02);
     fl.type = 'lowpass'; fl.Q.value = 1.5;
     fl.frequency.setValueAtTime(Math.min(11000, f * 10), t); fl.frequency.exponentialRampToValueAtTime(Math.max(700, f * 2.5), t + 0.16);
@@ -125,18 +125,11 @@
     fl.frequency.setValueAtTime(cut * 1.8, t); fl.frequency.exponentialRampToValueAtTime(cut, t + 0.15);
     fl.connect(g); g.connect(S.mel); free(o, g);
   }
-  function vPad(S, t, d, notes, v, br) {
-    var c = S.c, e = t + d + 0.45, fl = c.createBiquadFilter(), g = adsr(c, t, d, v * 0.075, Math.min(0.4, d * 0.3), 0.4, 1), pl = fl, pr = fl, o, i;
-    if (c.createStereoPanner) {
-      pl = c.createStereoPanner(); pl.pan.value = -0.6; pl.connect(fl);
-      pr = c.createStereoPanner(); pr.pan.value = 0.6; pr.connect(fl);
-    }
-    for (i = 0; i < notes.length; i++) {
-      o = osc(S, 'sawtooth', mtof(notes[i]), t, e, -9); o.connect(pl);
-      osc(S, 'sawtooth', mtof(notes[i]), t, e, 9).connect(pr);
-    }
+  function vPad(S, t, d, notes, v, br) {   // one saw per chord tone; the session's ensemble chorus supplies the width
+    var c = S.c, e = t + d + 0.42, fl = c.createBiquadFilter(), g = adsr(c, t, d, v * 0.08, Math.min(0.4, d * 0.3), 0.4, 1), o, i;
+    for (i = 0; i < notes.length; i++) { o = osc(S, 'sawtooth', mtof(notes[i]), t, e, i % 2 ? 5 : -5); o.connect(fl); }
     fl.type = 'lowpass'; fl.frequency.value = 400 + 2200 * br; fl.Q.value = 0.6;
-    fl.connect(g); g.connect(S.duck); free(o, g);
+    fl.connect(g); g.connect(S.pad); free(o, g);
   }
   function vStab(S, t, d, notes, v) {
     var c = S.c, fl = c.createBiquadFilter(), g = decay(c, t, 0.22, v * 0.2, 0.003), o, i;
@@ -227,13 +220,13 @@
   var OARP = '0.2.3.2.0.2.3.5.', A16 = '0232023202320232', OTICK = 'x...x...x...x...', OTOCK = 'x.o.x.o.x.o.x.o.';
 
   var DEFS = {
-    trace: { name: 'First Trace', bpm: 128, len: 128, bass: 0, lead: 0, bassLo: 33, sec: [
+    trace: { name: 'First Trace', bpm: 128, len: 128, bass: 0, lead: 0, bassLo: 36, sec: [
       { b: [0, 16], ch: 'Am F C G', pad: 0.85, arp: TINTRO, ao: 12, h: Z + Z + OFS + OFS, lv: { arp: 0.85 } },
       { b: [16, 32], ch: 'Am F C G', cr: 0.6, pad: 0.8, k: x(K4, 3) + 'x...x...x...x.x.', c: BK, h: OFF, bass: TBASS, arp: TARP, ao: 12 },
       { b: [32, 48], ch: 'Am F C Em', pad: 0.8, k: x(K4, 3) + 'x...x...x..x..x.', c: x(BK, 3) + '....x.......x.xx', h: 'og.gog.gog.gog.g', o: OFF,
         bass: TBASS, arp: TARP + '0.2.3.2.5.4.3.2.', ao: 12 },
-      { b: [48, 64], ch: 'F G Am G', pad: 1, k: K1 + K1 + Z + Z, s: Z + Z + 'o...o...o...o...' + 'g.g.o.o.o.x.xxXX', h: OFS + OFS + H8 + H8,
-        bass: DRONE + DRONE + P8 + P8, arp: TARP + TARP + '3.4.5.4.6.4.5.4.' + '34563456345634..', rise: [4, 12] },
+      { b: [48, 64], ch: 'F G Am G', pad: 0.8, k: K1 + K1 + Z + Z, s: Z + Z + 'o...o...o...o...' + 'g.g.o.o.o.x.xxXX', h: OFS + OFS + H8 + H8,
+        bass: DRONE + DRONE + P8 + P8, arp: TARP + TARP + '3.4.5.4.6.4.5.4.' + '34563456345634..', rise: [4, 12], lv: { bass: 0.7, arp: 0.8 } },
       { b: [64, 96], ch: 'F G Am C F G C G', cr: 1, pad: 0.7, k: x(K4, 7) + 'x...x...x...x.xx', s: BK, c: BK, h: H16, o: OFF,
         bass: TDRIVE, arp: TARP, lv: { arp: 0.6, o: 0.6 },
         lead: TA + TB + TC + 'g5/3 e5/3 c5/2 d5/2 e5/2 c5/2 r/2 ' + TA + TB + 'e5/3 g5/3 c6/2 b5/2 g5/2 a5/4 b5/3 a5/3 g5/2 d5/2 e5/2 g5/2 b5/2' },
@@ -263,10 +256,10 @@
       { b: [64, 80], ch: 'Dm Bb Gm A', cr: 0.7, pad: 0.8, pb: 0.5, bass: DRONE, bq: 0.3, arp: x(TARP, 2) + x('0232423202324232', 2), ao: 12,
         s: x(Z, 3) + '........g.o.x.XX', rise: [8, 8], lv: { bass: 0.5, arp: 0.7 } },
       { b: [80, 112], ch: OCH, cr: 1, pad: 0.5, k: OK, s: OS, c: BK, h: OH, o: Z + '..............x.', bass: OBASS, lead: OHOOK },
-      { b: [112, 144], ch: OCH, cr: 0.8, pad: 0.5, k: OK, s: OS, c: BK, h: OH, o: OFF, bass: OBASS, lead: OHOOK, arp: A16, ao: 12, stab: OSTAB,
-        tm: x(Z, 7) + '..........x.x.oo', lv: { arp: 0.5, stab: 0.7, o: 0.7 } },
-      { b: [144, 176], ch: OCH, tr: 2, cr: 1, pad: 0.6, k: OK, s: OS, c: BK, h: OH, o: OFF, sh: 'xoxoxoxoxoxoxoxo', bass: OBASS, lead: OHOOK, arp: A16, ao: 12,
-        stab: OSTAB, tm: x(Z, 3) + '..........x.x.oo', lv: { arp: 0.5, stab: 0.8, o: 0.7, sh: 0.6 } },
+      { b: [112, 144], ch: OCH, cr: 0.8, pad: 0.5, k: OK, s: OS, c: BK, h: OH, o: OFF, bass: OBASS, lead: OHOOK, arp: A16, ao: 12,
+        tm: x(Z, 7) + '..........x.x.oo', lv: { arp: 0.5, o: 0.7 } },
+      { b: [144, 176], ch: OCH, tr: 2, cr: 1, pad: 0.6, k: OK, s: OS, c: BK, h: OH, o: OFF, sh: 'xoxoxoxoxoxoxoxo', bass: OBASS, lead: OHOOK, arp: OARP, ao: 12,
+        stab: OSTAB, tm: x(Z, 3) + '..........x.x.oo', lv: { arp: 0.7, stab: 0.8, o: 0.7, sh: 0.6 } },
       { b: [176, 192], ch: 'Dm Dm Eb Dm', cr: 0.8, pad: 0.8, pb: 0.25, h: OTOCK + OTOCK + OTICK + OTICK, bass: DRONE, bq: [0.6, 0.2],
         mel: 'd5/2 r/1 d5/1 eb5/2 d5/2 r/8 r/16 r/16 r/16', lv: { bass: 0.4 } }
     ] },
@@ -328,7 +321,7 @@
       }
       if ((p = P('arp'))) for (i = 0; i < ns; i++) {
         c = p.charCodeAt(i % p.length) - 48; tn = at(i).tones;
-        if (c >= 0 && c <= 9) add(i, vPluck, 'arp', run(p, i) * sd + 0.22, tn[c % tn.length] + 12 * Math.floor(c / tn.length) + ao, 0.8 * L('arp'), (i >> 1) % 2 ? 0.4 : -0.4);
+        if (c >= 0 && c <= 9) add(i, vPluck, 'arp', run(p, i) * sd + 0.15, tn[c % tn.length] + 12 * Math.floor(c / tn.length) + ao, 0.8 * L('arp'), (i >> 1) % 2 ? 0.4 : -0.4);
       }
       if ((p = P('stab'))) for (i = 0; i < ns; i++) {
         c = p[i % p.length];
@@ -360,16 +353,21 @@
     var c = r.c, D = compile(id), S = { c: c, rig: r, def: D, id: id, b0: b0, anchor: anchor, spb: 60 / D.bpm, vol: D.vol || 1,
       next: Math.ceil(b0 * 4 - 1e-6), fresh: true, gap: -Infinity, live: [], kicks: [], nz: 0, mute: null };
     var send = c.createGain(), da = c.createDelay(1), db = c.createDelay(1), lp = c.createBiquadFilter(), ab = c.createGain(), ba = c.createGain();
+    var cho = c.createDelay(0.1), lfo = c.createOscillator(), dep = c.createGain();
     S.out = c.createGain(); S.out.gain.value = S.vol; S.out.connect(r.music);
     S.drum = S.out;
     S.left = c.createGain(); S.right = c.createGain();    // slightly off-centre buses (hats, delay taps)
     link(S, S.left, S.out, -0.45); link(S, S.right, S.out, 0.45);
     S.duck = c.createGain(); S.duck.connect(S.out);        // bass + pad, dipped on every kick
+    S.pad = c.createGain();                                // pad bus: dry on one side, slowly modulated copy on the other
+    cho.delayTime.value = 0.012; lfo.frequency.value = 0.7; dep.gain.value = 0.0015;
+    lfo.connect(dep); dep.connect(cho.delayTime); lfo.start(); S.live.push([lfo, Infinity]);
+    link(S, S.pad, S.duck, -0.5); S.pad.connect(cho); link(S, cho, S.duck, 0.5);
     S.mel = c.createGain(); S.mel.connect(S.out);          // plucks, leads, stabs: dry + delay send
     // light ping-pong feedback delay, a dotted eighth per hop
     send.gain.value = 0.3; da.delayTime.value = db.delayTime.value = S.spb * 0.75; lp.type = 'lowpass'; lp.frequency.value = 3000; ab.gain.value = ba.gain.value = 0.6;
     S.mel.connect(send); send.connect(da); da.connect(lp); lp.connect(S.left); lp.connect(ab); ab.connect(db); db.connect(S.right); db.connect(ba); ba.connect(da);
-    S.fx = [ba, ab, lp, S.mel, S.duck, S.left, S.right];
+    S.fx = [ba, ab, lp, S.mel, S.duck, S.left, S.right, S.pad, cho, dep];
     return S;
   }
   function stepTime(S, step) { return S.anchor + (step / 4 - S.b0) * S.spb; }

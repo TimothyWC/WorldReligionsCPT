@@ -117,12 +117,17 @@ h1 {
 
 .field { display: grid; grid-template-columns: 7em 1fr; align-items: center; gap: 12px; font: 13px/1 var(--f-data); letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
 input[type=range] { width: 100%; accent-color: var(--trace); min-height: 28px; }
+.note { font: 12px/1.5 var(--f-data); letter-spacing: 0.04em; }
 .check { display: flex; align-items: center; gap: 10px; font: 13px/1.3 var(--f-data); letter-spacing: 0.06em; color: var(--ink); cursor: pointer; }
 .check input { width: 20px; height: 20px; accent-color: var(--trace); }
 .picks { display: flex; flex-wrap: wrap; gap: 8px; }
 .picks button { padding: 0; width: 46px; height: 46px; min-height: 0; display: grid; place-items: center; }
 .picks button[aria-pressed=true] { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
 .picks canvas { width: 34px; height: 34px; pointer-events: none; }
+.picks button { position: relative; }
+.picks button:disabled { cursor: default; border-style: dashed; }
+.picks button:disabled canvas { opacity: 0.22; }
+.picks em { position: absolute; inset: auto 3px 2px auto; font: 11px/1 var(--f-data); font-style: normal; color: var(--acc); }
 .picks i { width: 22px; height: 22px; border-radius: 50%; display: block; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stats div { border: 1px solid var(--line); padding: 10px 8px; text-align: center; min-width: 0; }
@@ -211,9 +216,11 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     <h2 id="setTitle">Settings</h2>
     <label class="field" for="volMusic">Music <input type="range" id="volMusic" min="0" max="100" step="1"></label>
     <label class="field" for="volSfx">Effects <input type="range" id="volSfx" min="0" max="100" step="1"></label>
+    <label class="field" for="audioOffset">Sync <input type="range" id="audioOffset" min="-150" max="300" step="10"></label>
+    <p class="note">Sync: <span id="audioOffsetOut">0 ms</span>. Raise it if the music sounds late, which is common on Bluetooth headphones.</p>
     <label class="check" for="optCalm"><input type="checkbox" id="optCalm"> Calm mode: no screen shake, softer flashes</label>
     <label class="check" for="optAuto"><input type="checkbox" id="optAuto"> Practice: place checkpoints automatically</label>
-    <div class="stack"><span class="field" style="grid-template-columns:1fr">Your glyph</span><div class="picks" id="skins"></div></div>
+    <div class="stack"><span class="field" style="grid-template-columns:1fr">Your glyph</span><div class="picks" id="skins"></div><p class="note" id="skinNote"></p></div>
     <div class="stack"><span class="field" style="grid-template-columns:1fr">Beam colour</span><div class="picks" id="tints"></div></div>
     <div class="rowb">
       <button class="primary" id="btnSetClose">Done</button>
