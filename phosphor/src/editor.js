@@ -11,6 +11,9 @@
 
   var ROWS = 10, W_START = 96, W_MIN = 32, W_MAX = 1200, W_STEP = 32, MAX_CORES = 3, RUNUP = 8;
   var STORE_KEY = 'phosphor.custom.v1', MAX_SAVED = 60, HIST = 200, NAME_MAX = 32, CODE_MAX = 40000;
+  var DRAFT_KEY = 'phosphor.draft.v1', ZOOM_KEY = 'phosphor.editor.zoom';
+  var Z_MIN = 0.35, Z_MAX = 1.5, Z_STEP = 1.25;      // the renderer clamps scene.zoom to the same range
+  var CELL_MIN = 18, CELL_MAX = 56;                  // default zoom keeps a cell between these sizes (px)
   var SOLVE_LIMIT = 1500000;
   var DEFAULT_NAME = 'Untitled level';
   var FONT = '"Share Tech Mono", ui-monospace, monospace';
@@ -56,14 +59,14 @@
   var S = {
     ready: false, active: false, store: true, greeted: false,
     id: '', name: DEFAULT_NAME, song: 'trace', pal: 0, width: W_START, grid: null, cores: 0,
-    dirty: false, stale: true, L: null, tool: TOOLS[2],
-    camX: 0, camY: 0, camInit: false, snap: true, beat: 0,
+    dirty: false, updated: 0, stale: true, L: null, tool: TOOLS[2],
+    camX: 0, camY: 0, camInit: false, snap: true, beat: 0, zoom: 1, zoomAuto: true,
     hist: [], redo: [], stroke: null, ptrs: {}, nptr: 0, pinch: null, hover: null,
     panel: null, opener: null, mark: null, busy: false, lastVerify: null,
     msg: '', kind: '', sticky: false, warn: ''
   };
-  var V = { W: 0, H: 0, B: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false, statusMin: -1 };
-  var el = {}, sc = null, reduced = false, mqWide = null, mqStack = null, msgT = 0, seq = 0;
+  var V = { W: 0, H: 0, B: 40, baseB: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false, statusMin: -1 };
+  var el = {}, sc = null, reduced = false, coarse = false, mqWide = null, mqStack = null, mqShort = null, msgT = 0, draftT = 0, zoomT = 0, seq = 0;
 
   function $(id) { return doc.getElementById(id); }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -165,16 +168,17 @@
     return rowsOf(g);
   }
 
-  function loadRecord(rec, dirty) {
+  /* when = time of the level's last change (0 for a fresh one); the draft check compares against it */
+  function loadRecord(rec, dirty, when) {
     cancelStroke();
     S.id = rec.id || newId(); S.name = rec.name; S.song = rec.song; S.pal = rec.pal; S.width = rec.width;
     S.grid = gridOf(rec.rows); S.cores = countCores(S.grid);
-    S.hist.length = 0; S.redo.length = 0; S.dirty = !!dirty; S.stale = true; S.mark = null; S.lastVerify = null;
+    S.hist.length = 0; S.redo.length = 0; S.dirty = !!dirty; S.updated = when || 0; S.stale = true; S.mark = null; S.lastVerify = null;
     S.camInit = false; S.snap = true;
     if (S.ready) { syncForm(); applyPal(); checkWarn(); syncButtons(); note(); renderStatus(); }
   }
   function newLevel() {
-    loadRecord({ id: newId(), name: DEFAULT_NAME, song: 'trace', pal: 0, width: W_START, rows: exampleRows() }, false);
+    loadRecord({ id: newId(), name: DEFAULT_NAME, song: 'trace', pal: 0, width: W_START, rows: exampleRows() }, false, 0);
   }
 
   /* ---------- share codes: PH1.<base64url of JSON { v, n, s, p, w, g }>, g = run-length rows ---------- */
@@ -259,6 +263,37 @@
   }
   var BLOCKED = 'This browser is blocking storage, so levels cannot be saved here. Copy code keeps a level instead.';
 
+  /* The draft is the working level with unsaved changes, written a moment after every change so a reload
+     does not lose it. Silent when storage is blocked. Save, New and Load clear it. */
+  function markDirty() { S.dirty = true; S.updated = Date.now(); queueDraft(); }
+  function queueDraft() { root.clearTimeout(draftT); draftT = root.setTimeout(writeDraft, 500); }
+  function writeDraft() {
+    root.clearTimeout(draftT); draftT = 0;
+    if (!S.dirty || !S.grid) return;
+    var rec = record();
+    rec.updated = S.updated || Date.now();
+    try { root.localStorage.setItem(DRAFT_KEY, JSON.stringify(rec)); } catch (e) { /* blocked or full: nothing to do */ }
+  }
+  function flushDraft() { if (draftT) writeDraft(); }
+  function clearDraft() {
+    root.clearTimeout(draftT); draftT = 0;
+    try { root.localStorage.removeItem(DRAFT_KEY); } catch (e) { /* blocked */ }
+  }
+  function readDraft() {
+    try { var raw = root.localStorage.getItem(DRAFT_KEY); return raw ? checkLevel(JSON.parse(raw), true) : null; } catch (e) { return null; }
+  }
+  /* Called when the editor opens. Brings the draft back when it is newer than the level in memory,
+     unless that level has unsaved changes of its own or a saved copy is at least as new. */
+  function restoreDraft() {
+    if (S.dirty) return false;
+    var d = readDraft(), list, i;
+    if (!d || !d.id || !(d.updated > S.updated)) return false;
+    list = readStore();
+    if (list) for (i = 0; i < list.length; i++) if (list[i].id === d.id && list[i].updated >= d.updated) { clearDraft(); return false; }
+    loadRecord(d, true, d.updated);
+    return true;
+  }
+
   function saveLevel() {
     commitName();
     var list = readStore(), rec = record(), i, at = -1;
@@ -268,7 +303,7 @@
     if (at >= 0) list.splice(at, 1);
     list.unshift(rec);
     if (!writeStore(list)) { say(S.store ? 'Could not save: storage is full. Delete a level or use Copy code.' : BLOCKED, 'bad'); return false; }
-    S.dirty = false; syncButtons();
+    S.dirty = false; S.updated = rec.updated; clearDraft(); syncButtons();
     say('Saved "' + rec.name + '" in this browser.', 'ok');
     return true;
   }
@@ -349,7 +384,7 @@
     applyEntry(e, true); S.hist.push(e); changed();
   }
   function changed() {
-    S.stale = true; S.dirty = true; S.mark = null; S.lastVerify = null;
+    S.stale = true; S.mark = null; S.lastVerify = null; markDirty();
     if (S.sticky) clearMsg();
     checkWarn(); syncButtons(); note(); renderStatus();
   }
@@ -407,7 +442,7 @@
   }
 
   /* ---------- form controls ---------- */
-  function setOff(b, off) { b.setAttribute('aria-disabled', off ? 'true' : 'false'); }
+  function setOff(b, off) { var v = off ? 'true' : 'false'; if (b.getAttribute('aria-disabled') !== v) b.setAttribute('aria-disabled', v); }
   function syncButtons() {
     if (!el.undo) return;
     setOff(el.undo, !S.hist.length); setOff(el.redo, !S.redo.length);
@@ -537,6 +572,9 @@
     }
     var row = stacked ? el.row1 : el.row2;
     if (row.lastElementChild !== el.moreBtn) row.appendChild(el.moreBtn);
+    // zoom and the up / down button: beside the scrubber, or beside the tool strip where height is scarce
+    var host = mqShort && mqShort.matches ? el.toolRow : el.nav;
+    if (el.zoomGrp.parentNode !== host) host.appendChild(el.zoomGrp);
   }
 
   /* ---------- panels ---------- */
@@ -622,7 +660,7 @@
     for (i = 0; i < list.length; i++) { taken[list[i].id] = 1; if (list[i].id === id) { rec = list[i]; at = i; } }
     if (!rec) { buildList(); return; }
     if (act === 'load') {
-      var go = function () { loadRecord(rec, false); closePanel(); say('Loaded "' + rec.name + '".', 'ok'); };
+      var go = function () { loadRecord(rec, false, rec.updated); clearDraft(); closePanel(); say('Loaded "' + rec.name + '".', 'ok'); };
       if (S.dirty) confirmTap(btn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them and loads "' + rec.name + '".', go); else go();
     } else if (act === 'dup') {
       if (list.length >= MAX_SAVED) { el.levelsInfo.textContent = 'You already have ' + MAX_SAVED + ' saved levels. Delete one first.'; return; }
@@ -634,7 +672,7 @@
       confirmTap(btn, el.levelsInfo, 'Delete "' + rec.name + '" for good? Press Confirm.', function () {
         list.splice(at, 1);
         if (!writeStore(list)) { el.levelsInfo.textContent = 'Could not delete: storage is blocked.'; return; }
-        if (rec.id === S.id) { S.dirty = true; syncButtons(); }
+        if (rec.id === S.id) { markDirty(); syncButtons(); }
         buildList(); el.levelsInfo.textContent = 'Deleted "' + rec.name + '".';
         el.newBtn.focus({ preventScroll: true });
       });
@@ -684,7 +722,7 @@
     catch (e) { disarm(); el.codeMsg.textContent = e.friendly ? e.message : 'The code could not be read. Copy it again in full.'; return; }
     if (armBtn !== el.importBtn) el.codeMsg.textContent = '';
     var go = function () {
-      rec.id = newId(); loadRecord(rec, true); closePanel();
+      rec.id = newId(); loadRecord(rec, true, Date.now()); queueDraft(); closePanel();
       say('Imported "' + rec.name + '". Save keeps it in this browser.', 'ok');
     };
     if (S.dirty) confirmTap(el.importBtn, el.codeMsg, 'The open level has unsaved changes. Confirm replaces it.', go); else go();
@@ -699,10 +737,20 @@
   function open() {
     if (!S.ready) return;
     PG.enterEditor();
+    if (restoreDraft()) {
+      S.greeted = true;
+      onEnter();
+      say('Restored your unsaved draft of "' + S.name + '". Save keeps it, New under Levels starts over.', 'ok', false, 10000);
+      return;
+    }
     onEnter();
-    if (!S.greeted) { S.greeted = true; say('Tap or drag on the grid to place the selected tile. Test plays the level from the start.', '', false, 9000); }
+    if (!S.greeted) {
+      S.greeted = true;
+      say(coarse ? 'Tap or drag on the grid to place the selected tile. Pinch with two fingers to zoom, drag with two to move.'
+        : 'Click or drag on the grid to place the selected tile. The wheel scrolls, Ctrl + wheel zooms.', '', false, 10000);
+    }
   }
-  function leave() { closePanel(true); cancelStroke(); S.active = false; S.hover = null; setCursor(); }
+  function leave() { closePanel(true); cancelStroke(); flushDraft(); S.active = false; S.hover = null; setCursor(); }
   function exit() { leave(); PG.exitEditor(); }
   function play(practice) {
     commitName();
@@ -740,7 +788,39 @@
     }, 60);
   }
 
-  /* ---------- camera ---------- */
+  /* ---------- camera ----------
+     The renderer maps world to screen as x = px0 + (wx - camX) * B and y = baseY - (wy - camY) * B, with
+     B = baseB * zoom. px0 and baseY do not move with the zoom, so V.B can be kept in step here between frames. */
+  function fitZoom() { return (V.bot - V.top - 24) / (ROWS * V.baseB); }       // all ten rows between the bars
+  /* per screen: fit all ten rows when a cell stays big enough to hit, never larger than play size,
+     and no huge cells on a big monitor */
+  function defaultZoom() {
+    return clamp(Math.max(Math.min(1, fitZoom(), CELL_MAX / V.baseB), CELL_MIN / V.baseB), Z_MIN, Z_MAX);
+  }
+  function keepZoom() {                         // remembered for the browser session
+    root.clearTimeout(zoomT);
+    zoomT = root.setTimeout(function () {
+      try { if (S.zoomAuto) root.sessionStorage.removeItem(ZOOM_KEY); else root.sessionStorage.setItem(ZOOM_KEY, String(S.zoom)); } catch (e) { /* blocked */ }
+    }, 300);
+  }
+  /* zooms about the screen point (ax, ay), or the middle of the work area, so that spot holds still */
+  function setZoom(z, ax, ay) {
+    z = clamp(z, Z_MIN, Z_MAX);
+    if (ax === undefined) { ax = V.W / 2; ay = (V.top + V.bot) / 2; }
+    var wx = S.camX + (ax - V.px0) / V.B, wy = S.camY + (V.baseY - ay) / V.B;
+    S.zoom = z; S.zoomAuto = false; V.B = V.baseB * z;
+    S.camX = wx - (ax - V.px0) / V.B; S.camY = wy - (V.baseY - ay) / V.B;
+    clampCam(); keepZoom();
+  }
+  /* buttons and keys: steps of 1.25x that stop at "all rows fit" and at play size on the way past them */
+  function zoomStep(dir) {
+    var from = S.zoom, to = clamp(dir > 0 ? from * Z_STEP : from / Z_STEP, Z_MIN, Z_MAX);
+    [fitZoom(), 1].forEach(function (stop) { if ((from - stop) * (to - stop) < 0 && Math.abs(from - stop) > 0.02) to = stop; });
+    if (Math.abs(to - from) < 0.001) { say(dir > 0 ? 'That is as close as the view goes.' : 'That is as far out as the view goes.'); return; }
+    setZoom(to);
+    say('Zoom ' + Math.round(S.zoom * 100) + '%' + (Math.abs(S.zoom - 1) < 0.001 ? ': the size the level plays at.' : (V.panY ? '.' : ': all ten rows fit.')));
+  }
+  function zoomReset() { S.zoomAuto = true; keepZoom(); say('Zoom set to fit this screen.'); }
   /* returns true when the camera had to move */
   function clampCam() {
     var x0 = S.camX, y0 = S.camY, B = V.B || 40;
@@ -756,7 +836,7 @@
   }
   function measure() {
     var v = R.view, o = R.toScreen(S.camX, S.camY);
-    V.W = v.W; V.H = v.H; V.B = v.B; V.px0 = o.x; V.baseY = o.y;
+    V.W = v.W; V.H = v.H; V.B = v.B; V.baseB = v.B / sc.zoom; V.px0 = o.x; V.baseY = o.y;
     if (V.statusMin < 0) V.statusMin = parseFloat(root.getComputedStyle(el.status).minHeight) || 0;
     V.top = el.bar.getBoundingClientRect().bottom;
     // a message that wraps past the reserved lines grows the bar upwards; ignore that so the view holds still
@@ -772,6 +852,7 @@
     var a = clamp(Math.floor(S.camX - V.px0 / V.B + 0.5), 0, S.width), b = clamp(Math.floor(S.camX + (V.W - V.px0) / V.B), 0, S.width);
     var txt = 'Col ' + a + '-' + b + ' / ' + S.width;
     if (el.pos.textContent !== txt) el.pos.textContent = txt;
+    setOff(el.zoomOut, S.zoom <= Z_MIN + 0.001); setOff(el.zoomIn, S.zoom >= Z_MAX - 0.001);
     if (el.view.hidden === V.panY) el.view.hidden = !V.panY;
     var up = S.camY - V.lo < (V.hi - V.lo) / 2, lab = up ? 'Show the upper rows' : 'Show the lower rows';
     if (el.view.getAttribute('aria-label') !== lab) el.view.setAttribute('aria-label', lab);
@@ -781,6 +862,7 @@
   function frame(dt) {
     if (!S.ready) return;
     if (!S.active) onEnter();
+    if (S.pinch && S.pinch.dirty) movePinch();
     if (S.stale || !S.L) {
       try { S.L = E.compile(makeDef()); } catch (e) { if (!S.L) S.L = E.compile({ id: 'x', name: '', bpm: 120, song: 'trace', chunks: [['.']] }); }
       S.stale = false;
@@ -788,10 +870,13 @@
     var song = songOf(S.song) || SONGS[0];
     if (!reduced) S.beat += dt * song.bpm / 60;
     sc.L = S.L; sc.dt = dt; sc.beat = S.beat; sc.pal = S.pal; sc.snap = S.snap; S.snap = false;
-    sc.camX = S.camX; sc.camY = S.camY;
+    sc.camX = S.camX; sc.camY = S.camY; sc.zoom = S.zoom;
     R.draw(sc);
     measure();
-    if (clampCam()) { sc.camX = S.camX; sc.camY = S.camY; R.draw(sc); }
+    var again = false, z;
+    if (S.zoomAuto) { z = defaultZoom(); if (Math.abs(z - S.zoom) > 0.002) { S.zoom = z; V.B = V.baseB * z; again = true; } }
+    if (clampCam()) again = true;
+    if (again) { sc.camX = S.camX; sc.camY = S.camY; sc.zoom = S.zoom; R.draw(sc); }
     overlay();
     syncNav();
   }
@@ -812,7 +897,7 @@
     // cell grid, with a stronger line on every beat (4 columns at 1x)
     var xa = Math.max(-1, X(c0)), xb = Math.min(V.W + 1, X(c1));
     c.beginPath();
-    for (i = c0; i <= c1; i++) if (i % 4) { x = Math.round(X(i)) + 0.5; c.moveTo(x, g1.y); c.lineTo(x, g0.y); }
+    if (B >= 14) for (i = c0; i <= c1; i++) if (i % 4) { x = Math.round(X(i)) + 0.5; c.moveTo(x, g1.y); c.lineTo(x, g0.y); }
     for (y = 1; y < ROWS; y++) { t = Math.round(Y(y)) + 0.5; c.moveTo(xa, t); c.lineTo(xb, t); }
     c.lineWidth = 1; c.strokeStyle = rgba(tr, 0.1); c.stroke();
     c.beginPath();
@@ -823,7 +908,7 @@
 
     // column numbers under the ground line
     c.font = '10px ' + FONT; c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = rgba(tr, 0.75);
-    var stepN = B >= 26 ? 8 : 16;
+    var stepN = B >= 26 ? 8 : (B >= 14 ? 16 : 32);
     for (i = Math.ceil(c0 / stepN) * stepN; i <= c1; i += stepN) c.fillText(String(i), X(i) + 3, g0.y + 4);
 
     // run-up zone and the spot where every run starts
@@ -896,6 +981,30 @@
     for (k in S.ptrs) { x += S.ptrs[k].x; y += S.ptrs[k].y; n++; }
     return { x: x / (n || 1), y: y / (n || 1) };
   }
+  function spread(c) {                     // mean finger distance from their centre
+    var n = 0, d = 0, k, p;
+    for (k in S.ptrs) { p = S.ptrs[k]; d += Math.sqrt((p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y)); n++; }
+    return d / (n || 1);
+  }
+  /* Two fingers: the world point under their centre follows them (pan), their spread scales the view (pinch).
+     Each finger reports its own move event, so the gesture is applied once per frame, when both are in. */
+  function startPinch() {
+    var c = centroid();
+    S.pinch = { d: spread(c), z: S.zoom, on: false, over: 0, dirty: false, wx: S.camX + (c.x - V.px0) / V.B, wy: S.camY + (V.baseY - c.y) / V.B };
+  }
+  function movePinch() {
+    var pn = S.pinch, c = centroid(), d = spread(c), z = S.zoom;
+    pn.dirty = false;
+    // a plain two-finger drag wobbles a little: zooming starts once the spread is 8% off for two frames running
+    if (!pn.on && pn.d > 8) {
+      pn.over = Math.abs(d / pn.d - 1) > 0.08 ? pn.over + 1 : 0;
+      if (pn.over >= 2) { pn.on = true; pn.d = d; pn.z = S.zoom; }
+    }
+    if (pn.on && pn.d > 8) z = clamp(pn.z * d / pn.d, Z_MIN, Z_MAX);
+    if (z !== S.zoom) { S.zoom = z; S.zoomAuto = false; V.B = V.baseB * z; keepZoom(); }
+    S.camX = pn.wx - (c.x - V.px0) / V.B; S.camY = pn.wy - (V.baseY - c.y) / V.B;
+    clampCam();
+  }
   function onDown(e) {
     if (!S.active || S.panel || (e.pointerType === 'mouse' && e.button > 2)) return;
     e.preventDefault();
@@ -905,7 +1014,7 @@
     S.ptrs[e.pointerId] = p;
     if (S.nptr >= 2) {                     // a second finger: drop the stroke and pan with both
       cancelStroke();
-      S.pinch = { c: centroid(), x: S.camX, y: S.camY };
+      startPinch();
       return;
     }
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* not capturable */ }
@@ -920,23 +1029,26 @@
     if (e.pointerType !== 'touch') S.hover = p;
     if (!S.ptrs[e.pointerId]) return;
     S.ptrs[e.pointerId] = p;
-    if (S.pinch) { c = centroid(); S.camX = S.pinch.x - (c.x - S.pinch.c.x) / V.B; S.camY = S.pinch.y + (c.y - S.pinch.c.y) / V.B; clampCam(); return; }
+    if (S.pinch) { S.pinch.dirty = true; return; }
     if (!st || st.pid !== e.pointerId) return;
     if (st.kind === 'pan') { S.camX = st.cx - (p.x - st.p0.x) / V.B; S.camY = st.cy + (p.y - st.p0.y) / V.B; clampCam(); }
     else { c = cellAt(p); strokeTo(c.x, c.y); }
   }
   function onUp(e) {
     if (!S.ptrs[e.pointerId]) return;
+    if (S.pinch && S.pinch.dirty) movePinch();
     delete S.ptrs[e.pointerId]; S.nptr = Math.max(0, S.nptr - 1);
-    if (S.pinch) S.pinch = S.nptr >= 2 ? { c: centroid(), x: S.camX, y: S.camY } : null;
+    if (S.pinch) { if (S.nptr >= 2) startPinch(); else S.pinch = null; }
     if (S.stroke && S.stroke.pid === e.pointerId) endStroke();
   }
   function onWheel(e) {
     if (!S.active || S.panel) return;
     e.preventDefault();
     var unit = e.deltaMode === 1 ? 32 : (e.deltaMode === 2 ? V.W : 1), dx = e.deltaX * unit, dy = e.deltaY * unit;
-    var d = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-    if (e.shiftKey) panBy(0, -d / V.B); else panBy(d / V.B, 0);
+    var d = Math.abs(dx) > Math.abs(dy) ? dx : dy, p;
+    if (e.ctrlKey || e.metaKey) { p = pt(e); setZoom(S.zoom * Math.exp(-clamp(d, -300, 300) * 0.0022), p.x, p.y); }   // also a trackpad pinch
+    else if (e.shiftKey) panBy(0, -d / V.B);
+    else panBy(d / V.B, 0);
   }
   function onKey(e) {
     if (!S.active) return;
@@ -960,6 +1072,9 @@
     else if (k === 'ArrowDown') { e.preventDefault(); panBy(0, -1); }
     else if (k === 'Home') { e.preventDefault(); panBy(-1e6, 0); }
     else if (k === 'End') { e.preventDefault(); panBy(1e6, 0); }
+    else if (k === 'Equal' || k === 'NumpadAdd') zoomStep(1);
+    else if (k === 'Minus' || k === 'NumpadSubtract') zoomStep(-1);
+    else if (k === 'Digit0' || k === 'Numpad0') zoomReset();
     else if (k === 'KeyE' && !e.repeat) selectTool(toolById('erase'));
   }
 
@@ -990,6 +1105,8 @@
     click(el.trim, function () { closePanel(); trim(); });
     click(el.clear, function () { closePanel(); clearTiles(); });
     click(el.view, flipView);
+    click(el.zoomOut, function () { zoomStep(-1); });
+    click(el.zoomIn, function () { zoomStep(1); });
     click(el.shade, function () { closePanel(); });
     click(el.levelsClose, function () { closePanel(); });
     click(el.codeClose, function () { closePanel(); });
@@ -1000,31 +1117,33 @@
       else el.codeMsg.textContent = 'Copying is blocked here. Select the code and copy it by hand.';
     });
     click(el.newBtn, function () {
-      var go = function () { newLevel(); closePanel(); say('New level. The tiles are an example: paint over them or use Clear tiles under More.', 'ok', false, 7000); };
+      var go = function () { newLevel(); clearDraft(); closePanel(); say('New level. The tiles are an example: paint over them or use Clear tiles under More.', 'ok', false, 7000); };
       if (S.dirty) confirmTap(el.newBtn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them.', go); else go();
     });
     el.list.addEventListener('click', onListClick);
 
-    el.name.addEventListener('input', function () { S.name = el.name.value; if (!S.dirty) { S.dirty = true; syncButtons(); } });
+    el.name.addEventListener('input', function () { S.name = el.name.value; markDirty(); syncButtons(); });
     el.name.addEventListener('change', commitName);
     el.song.addEventListener('change', function () {
       if (!songOf(el.song.value)) { el.song.value = S.song; return; }
-      S.song = el.song.value; S.dirty = true; S.stale = true; syncButtons(); note();
+      S.song = el.song.value; S.stale = true; markDirty(); syncButtons(); note();
       var s = songOf(S.song); say('Song: ' + s.name + ', ' + s.bpm + ' BPM. The level plays faster or slower, its layout stays the same.', 'ok');
     });
     el.pal.addEventListener('change', function () {
       var v = parseInt(el.pal.value, 10);
       if (!(v >= 0 && v < PAL_NAMES.length)) { el.pal.value = String(S.pal); return; }
-      S.pal = v; S.dirty = true; S.stale = true; applyPal(); syncButtons();
+      S.pal = v; S.stale = true; markDirty(); applyPal(); syncButtons();
     });
     el.scrub.addEventListener('input', function () { S.camX = V.minX + (+el.scrub.value); clampCam(); });
 
     var onMq = function () { closePanel(true); place(); };
-    [mqWide, mqStack].forEach(function (mq) {
+    [mqWide, mqStack, mqShort].forEach(function (mq) {
       if (!mq) return;
       if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
     });
     root.addEventListener('resize', function () { V.statusMin = -1; if (S.panel === 'more') closePanel(true); });
+    root.addEventListener('pagehide', flushDraft);
+    doc.addEventListener('visibilitychange', function () { if (doc.hidden) flushDraft(); });
   }
 
   function init() {
@@ -1038,20 +1157,24 @@
       more: $('edMore'), moreFields: $('edMoreFields'), moreActs: $('edMoreActs'), songField: $('edSongField'), palField: $('edPalField'),
       song: $('edSong'), pal: $('edPal'), practice: $('edPractice'), levels: $('edLevels'), copy: $('edCopy'), paste: $('edPaste'),
       grow: $('edGrow'), trim: $('edTrim'), clear: $('edClear'), len: $('edLen'),
-      bottom: $('edBottom'), status: $('edStatus'), pos: $('edPos'), scrub: $('edScrub'), tools: $('edTools'), view: $('edView'),
+      bottom: $('edBottom'), status: $('edStatus'), nav: $('edNav'), pos: $('edPos'), scrub: $('edScrub'), toolRow: $('edToolRow'), tools: $('edTools'),
+      zoomGrp: $('edZoomGrp'), zoomOut: $('edZoomOut'), zoomIn: $('edZoomIn'), view: $('edView'),
       shade: $('edShade'), levelsPanel: $('edLevelsPanel'), levelsInfo: $('edLevelsInfo'), list: $('edList'), newBtn: $('edNew'), levelsClose: $('edLevelsClose'),
       codePanel: $('edCodePanel'), codeTitle: $('edCodeTitle'), codeInfo: $('edCodeInfo'), codeText: $('edCodeText'), codeMsg: $('edCodeMsg'),
       importBtn: $('edImport'), codeCopy: $('edCodeCopy'), codeClose: $('edCodeClose')
     };
     sc = {
       editor: true, hidePlayer: true, L: null, s: E.newState(), dt: 0, beat: 0, pulse: 0, x: 0, y: 0.5, rot: 0,
-      used: {}, coins: 0, owned: 0, cps: null, shake: 0, flash: 0, flashCol: 0, trail: [], parts: [], skin: 0, tint: 0, pal: 0, snap: true, camX: 0, camY: 0
+      used: {}, coins: 0, owned: 0, cps: null, shake: 0, flash: 0, flashCol: 0, trail: [], parts: [], skin: 0, tint: 0, pal: 0, snap: true, camX: 0, camY: 0, zoom: 1
     };
     try {
       reduced = !!(root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      coarse = !!(root.matchMedia && root.matchMedia('(pointer: coarse)').matches);
       mqWide = root.matchMedia ? root.matchMedia('(min-width: 1280px)') : null;
-      mqStack = root.matchMedia ? root.matchMedia('(max-width: 620px)') : null;    // same breakpoint as editor.html
-    } catch (e) { mqWide = mqStack = null; }
+      mqStack = root.matchMedia ? root.matchMedia('(max-width: 620px)') : null;    // same breakpoints as editor.html
+      mqShort = root.matchMedia ? root.matchMedia('(max-height: 520px) and (orientation: landscape)') : null;
+    } catch (e) { mqWide = mqStack = mqShort = null; }
+    try { var zs = parseFloat(root.sessionStorage.getItem(ZOOM_KEY)); if (zs >= Z_MIN && zs <= Z_MAX) { S.zoom = zs; S.zoomAuto = false; } } catch (e2) { /* blocked: fit the screen */ }
     S.store = probeStore();
     readSongs();
     buildTools(); fillSelects();
@@ -1067,7 +1190,8 @@
     /* read-only views of the editor, used by tools/editor-test.js */
     state: function () {
       return { active: S.active, id: S.id, name: S.name, song: S.song, pal: S.pal, width: S.width, cores: S.cores, dirty: S.dirty, tool: S.tool.id,
-        undo: S.hist.length, redo: S.redo.length, camX: S.camX, camY: S.camY, panY: V.panY, panel: S.panel, warn: S.warn, verify: S.lastVerify, store: S.store };
+        undo: S.hist.length, redo: S.redo.length, camX: S.camX, camY: S.camY, zoom: S.zoom, zoomAuto: S.zoomAuto, cellPx: V.B, panY: V.panY,
+        panel: S.panel, warn: S.warn, verify: S.lastVerify, store: S.store, updated: S.updated };
     },
     cell: function (x, y) { return S.grid[y] ? S.grid[y][x] : undefined; },
     def: makeDef, code: function () { return encode(record()); }, decode: decode

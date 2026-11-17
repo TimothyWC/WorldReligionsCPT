@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* Level editor test: drives the real page at desktop, landscape-phone and portrait-phone sizes.
-   Paints with the mouse (and touch on the phone sizes), undo / redo, song + colour, bot verify,
-   save + reload + saved list, share codes (export, import, bad codes), test-play and back,
+   Paints with the mouse (and touch on the phone sizes), undo / redo, zoom (buttons, keys, Ctrl+wheel,
+   pinch; painting at three zoom levels), song + colour, bot verify, save, the autosaved draft across
+   reloads, the saved list, share codes (export, import, bad codes), test-play and back,
    a run with storage blocked and a run inside a sandboxed frame (how a hosted page is embedded).
    Any console error, page error or failed check fails the run.
    usage: node tools/editor-test.js [outDir]        (run `node build.js` first) */
@@ -81,6 +82,18 @@ async function run(browser, sz, opts) {
   ok(st.warn === '', 'the example layout triggers the run-up warning');
   ok(await visible('#editor'), '#editor is not shown');
   ok(!(await page.evaluate(() => document.getElementById('ui').classList.contains('scrim'))), 'the menu scrim is still on');
+  const rowsVisible = () => page.evaluate(() => {
+    const top = document.getElementById('edBar').getBoundingClientRect().bottom, bot = document.getElementById('edBottom').getBoundingClientRect().top;
+    const y0 = window.PRender.toScreen(1, 0).y, y10 = window.PRender.toScreen(1, 10).y;
+    return { row0: y0 <= bot && y0 > top, row9: y10 >= top && y10 < bot };
+  });
+  const draft = () => page.evaluate(() => { try { return JSON.parse(window.localStorage.getItem('phosphor.draft.v1')); } catch (e) { return null; } });
+  const z0 = st.zoom;
+  let rv = await rowsVisible();
+  ok(st.zoomAuto && !st.panY && rv.row0 && rv.row9, 'the default zoom does not show all ten rows between the bars (zoom ' + st.zoom.toFixed(2) + ')');
+  ok(st.zoom <= 1 && st.cellPx >= 18 && st.cellPx <= 56.5, 'the default cell size is off: ' + st.cellPx.toFixed(1) + 'px at zoom ' + st.zoom.toFixed(2));
+  ok(Math.abs((await page.evaluate(() => window.PRender.view.B)) - st.cellPx) < 0.01, 'the renderer and the editor disagree about the cell size');
+  ok(await visible('#edZoomIn') && await visible('#edZoomOut') && !(await visible('#edView')), 'zoom buttons should show, the rows button only when rows do not fit');
   await shot('1-open');
   ok(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), 'horizontal page overflow');
   const small = await page.evaluate(() => {
@@ -213,29 +226,84 @@ async function run(browser, sz, opts) {
     st = await state();
     ok(st.camX > before.camX + 3.5, 'a two-finger drag did not pan the view (' + before.camX.toFixed(2) + ' -> ' + st.camX.toFixed(2) + ')');
     ok(st.undo === before.undo && (await cell(8, 2)) === '.', 'a two-finger drag left a tile or an undo step behind');
+    ok(Math.abs(st.zoom - before.zoom) < 0.001 && st.zoomAuto, 'a plain two-finger drag changed the zoom (' + before.zoom.toFixed(3) + ' -> ' + st.zoom.toFixed(3) + ')');
     await page.keyboard.press('Home'); await frameSettle();
   }
-  const rowsVisible = () => page.evaluate(() => {
-    const top = document.getElementById('edBar').getBoundingClientRect().bottom, bot = document.getElementById('edBottom').getBoundingClientRect().top;
-    const y0 = window.PRender.toScreen(1, 0.5).y, y9 = window.PRender.toScreen(1, 9.5).y;
-    return { row0: y0 < bot && y0 > top, row9: y9 > top && y9 < bot };
-  });
+
+  /* ---- zoom: buttons, keys, Ctrl+wheel, pinch; painting lands on the right cell at every level ---- */
+  const around = async (x, y) => (await Promise.all([[x, y], [x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].map(p => cell(p[0], p[1])))).join('');
+  await tool('block');
+  before = await state();
+  await clickCell(3, 3);                                   // 1: at the default zoom
+  ok((await around(3, 3)) === '#....', 'painting at the default zoom hit the wrong cell: ' + (await around(3, 3)));
+  // zoom in until the rows no longer fit, or as far as it goes (a tall portrait screen fits them at any zoom)
+  let presses = 0;
+  while (!(await state()).panY && (await page.getAttribute('#edZoomIn', 'aria-disabled')) !== 'true' && presses++ < 8) { await page.click('#edZoomIn'); await frameSettle(); }
   st = await state();
-  let rv = await rowsVisible();
-  ok(rv.row0, 'row 0 is not visible when the editor opens');
-  if (st.panY) {
-    ok(await visible('#edView'), 'rows do not all fit but the upper / lower rows button is hidden');
-    await page.click('#edView'); await frameSettle();
-    rv = await rowsVisible();
-    ok(rv.row9, 'row 9 is not reachable after showing the upper rows');
-    await tool('block');
-    await clickCell(4, 9);
-    ok((await cell(4, 9)) === '#', 'could not paint in row 9');
-    await shot('4-upper-rows');
-    await page.click('#edUndo');
-    await page.click('#edView'); await frameSettle();
-    ok((await rowsVisible()).row0, 'row 0 is not back after showing the lower rows');
-  } else ok(rv.row9, 'row 9 is not visible although the view cannot pan vertically');
+  ok(presses > 0 && st.zoom > z0 + 0.1 && !st.zoomAuto, 'Zoom in did not zoom in (zoom ' + st.zoom.toFixed(2) + ' after ' + presses + ' presses)');
+  ok(/^Zoom \d+%/.test(await status()), 'no zoom readout in the status line: ' + (await status()));
+  ok(Math.abs((await page.evaluate(() => window.PRender.view.B)) - st.cellPx) < 0.01 && st.cellPx > before.cellPx * 1.1, 'the renderer did not follow the zoom');
+  ok(sz.name === 'phone-port' || st.panY, 'zooming in should outgrow the space between the bars at this size');
+  ok((await visible('#edView')) === st.panY, 'the upper / lower rows button should show exactly when the rows do not fit');
+  if (st.panY && !(await rowsVisible()).row9) { await page.click('#edView'); await frameSettle(); }
+  ok((await rowsVisible()).row9, 'row 9 is not reachable when zoomed in');
+  await clickCell(4, 8);                                   // 2: zoomed in, top of the grid
+  ok((await around(4, 8)) === '#....', 'painting zoomed in hit the wrong cell: ' + (await around(4, 8)));
+  await shot('4-zoomed-in');
+  if (st.panY) { await page.click('#edView'); await frameSettle(); }
+  ok((await rowsVisible()).row0, 'row 0 is not reachable when zoomed in');
+  // Ctrl + wheel zooms about the pointer: the world point under it must not move
+  await page.keyboard.press('Digit0'); await frameSettle();
+  st = await state();
+  ok(st.zoomAuto && Math.abs(st.zoom - z0) < 0.005, 'the 0 key did not return to the default zoom');
+  const under = pt => page.evaluate(p => window.PRender.toWorld(p.x, p.y), pt);
+  const anchor = await at(7, 2), w0 = await under(anchor);
+  await page.mouse.move(anchor.x, anchor.y);
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, -260); await page.keyboard.up('Control'); await frameSettle();
+  st = await state();
+  const w1 = await under(anchor);
+  ok(st.zoom > z0 * 1.3, 'Ctrl + wheel did not zoom in (' + z0.toFixed(2) + ' -> ' + st.zoom.toFixed(2) + ')');
+  ok(Math.abs(w1.x - w0.x) < 0.06 && (!st.panY || Math.abs(w1.y - w0.y) < 0.06), 'Ctrl + wheel did not keep the point under the pointer steady: ' + JSON.stringify([w0, w1]));
+  // all the way out: every control stops at the limit and painting still lands on the right cell
+  for (let i = 0; i < 14 && (await page.getAttribute('#edZoomOut', 'aria-disabled')) !== 'true'; i++) { await page.keyboard.press('Minus'); await frameSettle(); }
+  st = await state();
+  ok(Math.abs(st.zoom - 0.35) < 0.001 && (await page.getAttribute('#edZoomOut', 'aria-disabled')) === 'true', 'zooming out did not stop at the smallest zoom (' + st.zoom.toFixed(3) + ')');
+  ok(!st.panY && (await rowsVisible()).row0 && (await rowsVisible()).row9 && !(await visible('#edView')), 'all rows should fit at the smallest zoom');
+  await page.keyboard.press('Home'); await frameSettle();
+  await clickCell(9, 6);                                   // 3: zoomed all the way out
+  ok((await around(9, 6)) === '#....', 'painting zoomed out hit the wrong cell: ' + (await around(9, 6)));
+  await dragCells(12, 7, 16, 7);
+  ok((await Promise.all([11, 12, 13, 14, 15, 16, 17].map(x => cell(x, 7)))).join('') === '.#####.', 'a drag zoomed out painted the wrong cells');
+  await page.focus('#edScrub');
+  await page.keyboard.press('End'); await frameSettle();
+  ok(await page.evaluate(() => { const x = window.PRender.toScreen(window.PEditor.state().width, 0).x; return x > window.innerWidth * 0.5 && x < window.innerWidth; }), 'the scrubber does not reach the end of the level when zoomed out');
+  await page.keyboard.press('Home'); await frameSettle();
+  ok(await page.evaluate(() => { const x = window.PRender.toScreen(0, 0).x; return x > 0 && x < 80; }), 'the scrubber does not return to the start when zoomed out');
+  await page.evaluate(() => document.activeElement.blur());
+  await shot('4-zoomed-out');
+  if (sz.touch) {
+    // pinch: two fingers moving apart zoom in about their centre
+    const cdp2 = await ctx.newCDPSession(page);
+    const touch2 = (type, pts) => cdp2.send('Input.dispatchTouchEvent', { type: type, touchPoints: pts });
+    const c = await at(14, 4), wc0 = await under(c);
+    before = await state();
+    await touch2('touchStart', [{ x: c.x - 30, y: c.y, id: 1 }]);
+    await touch2('touchStart', [{ x: c.x - 30, y: c.y, id: 1 }, { x: c.x + 30, y: c.y, id: 2 }]);
+    for (let i = 1; i <= 12; i++) { await touch2('touchMove', [{ x: c.x - 30 - 10 * i, y: c.y, id: 1 }, { x: c.x + 30 + 10 * i, y: c.y, id: 2 }]); await page.waitForTimeout(25); }
+    await touch2('touchEnd', []);
+    await frameSettle();
+    st = await state();
+    const wc1 = await under(c);
+    ok(st.zoom > before.zoom * 2 && st.undo === before.undo, 'a pinch did not zoom in (' + before.zoom.toFixed(2) + ' -> ' + st.zoom.toFixed(2) + ')');
+    ok(Math.abs(wc1.x - wc0.x) < 0.1, 'a pinch did not keep its centre steady: ' + wc0.x.toFixed(2) + ' -> ' + wc1.x.toFixed(2));
+    ok((await cell(14, 4)) === '.' && (await cell(13, 4)) === '.', 'a pinch left a tile behind');
+  }
+  // back to the default; the three painted cells and the drag are four undo steps
+  await page.keyboard.press('Digit0'); await frameSettle();
+  ok((await state()).zoomAuto && Math.abs((await state()).zoom - z0) < 0.005, 'the 0 key did not return to the default zoom after zooming out');
+  await page.keyboard.press('Home'); await frameSettle();
+  for (let i = 0; i < 4; i++) await page.click('#edUndo');
+  ok((await cell(3, 3)) === '.' && (await cell(4, 8)) === '.' && (await cell(9, 6)) === '.' && (await cell(14, 7)) === '.', 'undo did not remove the tiles painted at the three zoom levels');
 
   /* ---- name, song, colour ---- */
   const myName = 'Probe ' + sz.name;
@@ -279,6 +347,11 @@ async function run(browser, sz, opts) {
   await page.keyboard.press('Home');
 
   /* ---- save ---- */
+  if (!opts.blocked) {
+    await page.waitForFunction(n => { try { return JSON.parse(window.localStorage.getItem('phosphor.draft.v1')).name === n; } catch (e) { return false; } }, myName, { timeout: 5000 });
+    const d0 = await draft();
+    ok(d0 && d0.id === (await state()).id && d0.song === 'carrier' && d0.pal === 2 && d0.rows.length === 10 && d0.updated > 0, 'the draft written after a change has the wrong shape');
+  }
   await page.click('#edSave');
   const saved = await state();
   if (opts.blocked) {
@@ -287,6 +360,7 @@ async function run(browser, sz, opts) {
   } else {
     ok(/^Saved /.test(await status()), 'Save did not confirm: ' + (await status()));
     ok(!saved.dirty, 'the level is still marked unsaved after Save');
+    ok((await draft()) === null, 'Save did not clear the draft');
     const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('phosphor.custom.v1')));
     ok(Array.isArray(stored) && stored.length === 1 && stored[0].id === saved.id && stored[0].name === myName && stored[0].song === 'carrier' && stored[0].pal === 2 &&
       stored[0].width === 96 && stored[0].rows.length === 10 && stored[0].rows[9].charAt(10) === '^' && typeof stored[0].updated === 'number', 'the stored record has the wrong shape: ' + JSON.stringify(stored).slice(0, 200));
@@ -343,10 +417,44 @@ async function run(browser, sz, opts) {
   ok((await page.evaluate(() => window.PEditor.code())) === code, 'export -> import -> export does not round-trip');
   ok(st.id !== saved.id && /^custom-[a-z0-9]+$/.test(st.id), 'an imported level should get its own custom- id, got ' + st.id);
 
-  /* ---- reload: the saved level is in the list ---- */
+  /* ---- reload: unsaved work comes back from the draft ---- */
   if (!opts.blocked) {
+    await tool('block'); await clickCell(6, 4);            // one more unsaved change on top of the import
+    await page.click('#edZoomIn'); await frameSettle();     // a zoom chosen by hand is kept for the session
+    const zMine = (await state()).zoom;
+    await page.waitForFunction(id => { try { const d = JSON.parse(window.localStorage.getItem('phosphor.draft.v1')); return d.id === id && d.rows[5].charAt(6) === '#'; } catch (e) { return false; } }, st.id, { timeout: 5000 });
+    await page.waitForTimeout(400);
     await openEditor();
-    ok((await state()).name === 'Untitled level', 'after a reload the editor should open a new level');
+    const back = await state();
+    ok(back.id === st.id && back.name === myName && back.song === 'carrier' && back.pal === 2 && back.width === 96 && back.dirty, 'the draft was not restored after a reload: ' + JSON.stringify({ id: back.id, name: back.name, dirty: back.dirty }));
+    ok((await cell(6, 4)) === '#' && (await cell(10, 0)) === '^' && (await cell(3, 4)) === '.', 'the restored draft does not hold the unsaved tiles');
+    ok(/^Restored your unsaved draft of "/.test(await status()), 'no status message about the restored draft: ' + (await status()));
+    ok((await page.inputValue('#edName')) === myName && (await page.inputValue('#edSong')) === 'carrier', 'the form does not show the restored draft');
+    ok(Math.abs(back.zoom - zMine) < 0.001 && !back.zoomAuto, 'the zoom was not remembered across the reload (' + zMine.toFixed(3) + ' -> ' + back.zoom.toFixed(3) + ')');
+    await shot('10-draft-restored');
+    await page.evaluate(() => { const a = document.activeElement; if (a) a.blur(); });
+    await page.keyboard.press('Digit0'); await frameSettle();
+    // leaving and coming back in the same session must not restore again or repeat the message
+    await page.click('#edExit');
+    await page.waitForFunction(() => window.__phosphor.G.mode === 'menu');
+    await page.click('#btnEditor');
+    await page.waitForFunction(() => window.__phosphor.G.mode === 'editor' && window.PEditor.state().active);
+    ok((await state()).id === st.id && !/Restored/.test(await status()), 'the draft message repeated on re-entering the editor');
+    // an explicit New drops the draft
+    await reveal('#edLevels'); await page.click('#edLevels');
+    await page.click('#edNew');
+    ok((await page.textContent('#edNew')) === 'Confirm', 'New should ask before dropping the restored draft');
+    await page.click('#edNew');
+    await page.waitForFunction(() => window.PEditor.state().panel === null);
+    ok((await draft()) === null && (await state()).name === 'Untitled level', 'New did not clear the draft');
+    // a draft older than its saved copy, and a broken one, are both ignored
+    await page.evaluate(() => { const rec = JSON.parse(window.localStorage.getItem('phosphor.custom.v1'))[0]; rec.name = 'Stale draft'; rec.updated -= 5000; window.localStorage.setItem('phosphor.draft.v1', JSON.stringify(rec)); });
+    await openEditor();
+    ok((await state()).name === 'Untitled level' && (await draft()) === null, 'a draft older than the saved copy should be dropped, not restored');
+    await page.evaluate(() => window.localStorage.setItem('phosphor.draft.v1', '{"id":"custom-x","rows":['));
+    await openEditor();
+    ok((await state()).name === 'Untitled level' && !/Restored/.test(await status()), 'after a reload without a usable draft the editor should open a new level');
+    ok((await state()).zoomAuto, 'the zoom should be back to the default after resetting it');
     await reveal('#edLevels');
     await page.click('#edLevels');
     await page.waitForSelector('#edLevelsPanel', { state: 'visible' });
@@ -376,6 +484,9 @@ async function run(browser, sz, opts) {
     st = await state();
     ok(st.name === 'Untitled level' && st.id !== saved.id && st.song === 'trace', 'New did not start a fresh level');
   } else {
+    await page.waitForTimeout(700);                         // the draft write is attempted and fails quietly
+    await openEditor();
+    ok((await state()).name === 'Untitled level' && !/Restored/.test(await status()), 'with storage blocked a reload should just open a new level');
     await reveal('#edLevels');
     await page.click('#edLevels');
     ok(/blocking storage/.test(await page.textContent('#edLevelsInfo')), 'the Levels panel does not explain that storage is blocked');
@@ -385,8 +496,12 @@ async function run(browser, sz, opts) {
 
   /* ---- test play and back ---- */
   const idBefore = (await state()).id;
+  await page.click('#edZoomIn'); await frameSettle();
+  const zPlay = await state();
   await page.click('#edTest');
   await page.waitForFunction(() => window.__phosphor.G.mode === 'play');
+  await frameSettle();
+  ok(Math.abs((await page.evaluate(() => window.PRender.view.B)) - zPlay.cellPx / zPlay.zoom) < 0.01, 'a test run should be drawn at play size, whatever the editor zoom is');
   ok(!(await visible('#editor')), 'the editor is still shown during a test run');
   ok(await page.evaluate(() => !!window.__phosphor.G.custom && !window.__phosphor.G.practice), 'Test should start a normal custom run');
   await page.waitForTimeout(700);
@@ -403,6 +518,9 @@ async function run(browser, sz, opts) {
   await page.waitForFunction(() => window.__phosphor.G.mode === 'editor' && window.PEditor.state().active);
   await frameSettle();
   st = await state();
+  ok(Math.abs(st.zoom - zPlay.zoom) < 0.001 && Math.abs((await page.evaluate(() => window.PRender.view.B)) - zPlay.cellPx) < 0.01, 'the editor zoom was not kept across the test run');
+  await page.evaluate(() => { const a = document.activeElement; if (a) a.blur(); });
+  await page.keyboard.press('Digit0'); await frameSettle();
   ok(await visible('#editor') && !(await visible('#pause')) && !(await visible('#hud')), 'the editor UI is not restored after the test run');
   ok(st.id === idBefore && (await cell(10, 0)) === '^', 'the level changed across the test run');
   await clickCell(3, 3, { button: 'right' });       // the canvas paints again

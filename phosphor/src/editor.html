@@ -39,7 +39,8 @@
 #editor .ed-status.ok { color: var(--trace); }
 #editor .ed-status.warn { color: var(--acc); }
 #editor .ed-status.bad { color: var(--hot); }
-#editor .ed-nav { flex: 0 1 340px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+#editor .ed-nav { flex: 0 1 470px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+#editor .ed-zoom { flex: 0 0 auto; display: flex; gap: 6px; }
 #editor .ed-pos { font: 11px/1 var(--f-data); letter-spacing: 0.08em; color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; text-transform: uppercase; }
 #editor #edScrub { flex: 1 1 0; min-width: 0; margin: 0; pointer-events: auto; }
 #editor .ed-toolrow { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
@@ -52,7 +53,7 @@
 #editor .ed-word { padding: 0 9px; font-size: 11px; letter-spacing: 0.1em; }
 #editor .ed-gate { font: 600 11px/1 var(--f-data); letter-spacing: 0.02em; text-transform: none; white-space: nowrap; color: var(--g, var(--acc)); border: 1px solid var(--g, var(--acc)); padding: 5px 4px 4px; pointer-events: none; }
 #editor .ed-sep { flex: 0 0 1px; align-self: stretch; margin: 6px 2px; background: var(--line); }
-#editor #edView { height: 44px; min-height: 44px; }
+#editor .ed-toolrow .ed-ic { height: 44px; min-height: 44px; }
 
 /* panels: More drops from the top bar, the others sit in the middle */
 #editor .ed-shade { position: fixed; inset: 0; z-index: 2; background: rgba(2, 8, 6, 0.6); pointer-events: auto; }
@@ -95,6 +96,7 @@
   #editor .ed-fields > .field { flex: 1 1 0; }
   #editor textarea { min-height: 76px; }
 }
+@media (max-width: 360px) { #editor .ed-pos { display: none; } }
 @media (hover: none) { #editor .ed-keys { display: none; } }
 </style>
 
@@ -129,21 +131,25 @@
         <button type="button" id="edClear" class="danger">Clear tiles</button>
       </div>
       <p class="ed-note" id="edLen"></p>
-      <p class="ed-note ed-keys"><kbd>Arrows</kbd> move the view. <kbd>Shift</kbd> + wheel moves it up and down. <kbd>Ctrl</kbd> <kbd>Z</kbd> undo, <kbd>Ctrl</kbd> <kbd>Y</kbd> redo, <kbd>E</kbd> erase. Right-click erases with any tool.</p>
+      <p class="ed-note ed-keys"><kbd>Arrows</kbd> move the view, <kbd>Shift</kbd> + wheel moves it up and down. <kbd>+</kbd> <kbd>-</kbd> or <kbd>Ctrl</kbd> + wheel zoom, <kbd>0</kbd> fits the screen. <kbd>Ctrl</kbd> <kbd>Z</kbd> undo, <kbd>Ctrl</kbd> <kbd>Y</kbd> redo, <kbd>E</kbd> erase. Right-click erases with any tool.</p>
     </div>
   </div>
 
   <div class="ed-bar ed-bottom" id="edBottom">
     <div class="ed-info">
       <p class="ed-status" id="edStatus" role="status" aria-live="polite"></p>
-      <div class="ed-nav">
+      <div class="ed-nav" id="edNav">
         <span class="ed-pos" id="edPos"></span>
         <input type="range" id="edScrub" min="0" max="1" step="1" value="0" aria-label="Scroll along the level">
+        <div class="ed-zoom" id="edZoomGrp" role="group" aria-label="View">
+          <button type="button" id="edZoomOut" class="ed-ic" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.6 12.6 17 17"/><path d="M6 8.5h5"/></svg></button>
+          <button type="button" id="edZoomIn" class="ed-ic" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.6 12.6 17 17"/><path d="M6 8.5h5M8.5 6v5"/></svg></button>
+          <button type="button" id="edView" class="ed-ic" aria-label="Show the upper rows" title="Show the upper or lower rows" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5-5 5 5"/><path d="M5 12l5 5 5-5"/></svg></button>
+        </div>
       </div>
     </div>
-    <div class="ed-toolrow">
+    <div class="ed-toolrow" id="edToolRow">
       <div class="ed-tools" id="edTools" role="toolbar" aria-label="Tiles and tools"></div>
-      <button type="button" id="edView" class="ed-ic" aria-label="Show the upper rows" title="Show the upper or lower rows" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5-5 5 5"/><path d="M5 12l5 5 5-5"/></svg></button>
     </div>
   </div>
 
