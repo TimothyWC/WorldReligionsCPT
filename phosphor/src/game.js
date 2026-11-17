@@ -26,7 +26,11 @@
     for (var id in save.lv) if (id.indexOf('daily-') === 0 && id !== keep) delete save.lv[id];
   }
   function persist() { try { root.localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } }
-  function rec(id) { return save.lv[id] || (save.lv[id] = { n: 0, p: 0, cores: 0, att: 0, done: 0 }); }
+  var scratch = {};                 // progress for editor test runs: kept for the session only, never saved
+  function rec(id) {
+    var box = id.indexOf('custom-') === 0 ? scratch : save.lv;
+    return box[id] || (box[id] = { n: 0, p: 0, cores: 0, att: 0, done: 0 });
+  }
 
   /* ---------- state ---------- */
   var G = {
@@ -77,6 +81,7 @@
     var L;
     try { L = E.compile(def); } catch (e) { toast('That level has a problem: ' + e.message); return false; }
     G.custom = { onExit: opts && opts.onExit };
+    delete scratch[L.id];
     startL(L, opts && opts.practice);
     return true;
   }
@@ -84,6 +89,8 @@
   var wake = null;
   function keepAwake(on) {
     try {
+      var fp = document.featurePolicy || document.permissionsPolicy;
+      if (on && fp && fp.allowsFeature && !fp.allowsFeature('screen-wake-lock')) return;
       if (on && !wake && root.navigator.wakeLock) {
         root.navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }, function () { /* refused */ });
       } else if (!on && wake) { wake.release(); wake = null; }

@@ -20,6 +20,8 @@
 @supports (color: color-mix(in srgb, red 50%, blue)) {
   :root { --line: color-mix(in srgb, var(--trace) 32%, transparent); }
 }
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   background: var(--glass); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.4;

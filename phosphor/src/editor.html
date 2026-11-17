@@ -12,7 +12,6 @@
 #editor button[aria-disabled=true] { opacity: 0.35; cursor: default; pointer-events: none; }
 #editor #edSave::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; vertical-align: 1px; border: 1px solid var(--line); }
 #editor #edSave.ed-unsaved::after { background: var(--acc); border-color: var(--acc); }
-#editor #edMoreBtn { order: 9; }
 #editor #edMoreBtn[aria-expanded=true] { border-color: var(--acc); color: var(--acc); }
 #editor .ed-ic { width: 42px; padding: 0; display: grid; place-items: center; }
 #editor .ed-ic svg { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: square; pointer-events: none; }
@@ -166,6 +165,7 @@
       <p class="ed-err" id="edCodeMsg" role="alert"></p>
       <div class="rowb">
         <button type="button" id="edImport">Import</button>
+        <button type="button" id="edCodeCopy" hidden>Copy</button>
         <button type="button" id="edCodeClose">Close</button>
       </div>
     </div>

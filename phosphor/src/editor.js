@@ -54,7 +54,7 @@
   ];
 
   var S = {
-    ready: false, active: false, store: true,
+    ready: false, active: false, store: true, greeted: false,
     id: '', name: DEFAULT_NAME, song: 'trace', pal: 0, width: W_START, grid: null, cores: 0,
     dirty: false, stale: true, L: null, tool: TOOLS[2],
     camX: 0, camY: 0, camInit: false, snap: true, beat: 0,
@@ -63,7 +63,7 @@
     msg: '', kind: '', sticky: false, warn: ''
   };
   var V = { W: 0, H: 0, B: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false, statusMin: -1 };
-  var el = {}, sc = null, reduced = false, mqWide = null, msgT = 0, seq = 0;
+  var el = {}, sc = null, reduced = false, mqWide = null, mqStack = null, msgT = 0, seq = 0;
 
   function $(id) { return doc.getElementById(id); }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -118,12 +118,14 @@
     return id;
   }
 
-  /* Returns a clean record or throws a friendly Error. Used for stored levels and imported codes. */
-  function checkLevel(o) {
+  /* Returns a clean record or throws a friendly Error. Used for stored levels and imported codes.
+     stored = true keeps a saved level whose song or colour this build lacks (it falls back to the first one)
+     instead of dropping it; an imported code with either is refused. */
+  function checkLevel(o, stored) {
     if (!o || typeof o !== 'object') fail('That is not a level.');
-    var song = songOf(o.song);
+    var song = songOf(o.song) || (stored ? SONGS[0] : null), pal = o.pal;
     if (!song) fail('The level uses a song this version does not have.');
-    if (!isInt(o.pal) || o.pal < 0 || o.pal >= PAL_NAMES.length) fail('The level uses a colour this version does not have.');
+    if (!isInt(pal) || pal < 0 || pal >= PAL_NAMES.length) { if (stored) pal = 0; else fail('The level uses a colour this version does not have.'); }
     var w = o.width;
     if (!isInt(w) || w < W_MIN || w > W_MAX) fail('A level must be ' + W_MIN + ' to ' + W_MAX + ' columns long.');
     var rows = o.rows, r, i, ch, cores = 0;
@@ -139,7 +141,7 @@
     if (cores > MAX_CORES) fail('The level has ' + cores + ' cores. ' + MAX_CORES + ' is the most a level can hold.');
     return {
       id: typeof o.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(o.id) ? o.id : '',
-      name: cleanName(o.name), song: song.id, pal: o.pal, width: w, rows: rows.slice(),
+      name: cleanName(o.name), song: song.id, pal: pal, width: w, rows: rows.slice(),
       updated: typeof o.updated === 'number' && isFinite(o.updated) ? o.updated : 0
     };
   }
@@ -245,7 +247,7 @@
     try { arr = JSON.parse(raw || '[]'); } catch (e2) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
     for (i = 0; i < arr.length && out.length < MAX_SAVED; i++) {
-      try { rec = checkLevel(arr[i]); } catch (e3) { continue; }
+      try { rec = checkLevel(arr[i], true); } catch (e3) { continue; }
       if (!rec.id || seen[rec.id]) continue;
       seen[rec.id] = 1; out.push(rec);
     }
@@ -520,17 +522,21 @@
     SONGS.forEach(function (s) { var o = doc.createElement('option'); o.value = s.id; o.textContent = s.name + ' / ' + s.bpm + ' BPM'; el.song.appendChild(o); });
     PAL_NAMES.forEach(function (n, i) { var o = doc.createElement('option'); o.value = String(i); o.textContent = n; el.pal.appendChild(o); });
   }
-  /* wide screens carry the secondary controls in the top bar; narrower ones fold them into More */
+  /* Wide screens carry the secondary controls in the top bar; narrower ones fold them into More.
+     The nodes are moved rather than duplicated, so ids stay unique and Tab order follows what is on screen:
+     More ends the single-row bar, and ends the first row when the bar is stacked in two rows. */
   function place() {
-    var wide = !!(mqWide && mqWide.matches);
+    var wide = !!(mqWide && mqWide.matches), stacked = !!(mqStack && mqStack.matches);
     el.moreFields.hidden = wide;
     if (wide) {
-      el.row1.insertBefore(el.songField, el.moreBtn); el.row1.insertBefore(el.palField, el.moreBtn);
+      el.row1.appendChild(el.songField); el.row1.appendChild(el.palField);
       el.row2.insertBefore(el.practice, el.verify); el.row2.appendChild(el.levels);
     } else {
       el.moreFields.appendChild(el.songField); el.moreFields.appendChild(el.palField);
       el.moreActs.insertBefore(el.levels, el.moreActs.firstChild); el.moreActs.insertBefore(el.practice, el.levels);
     }
+    var row = stacked ? el.row1 : el.row2;
+    if (row.lastElementChild !== el.moreBtn) row.appendChild(el.moreBtn);
   }
 
   /* ---------- panels ---------- */
@@ -640,22 +646,37 @@
     el.codeTitle.textContent = paste ? 'Paste a level code' : 'Level code';
     el.codeInfo.textContent = paste
       ? 'Paste a code that starts with PH1. and press Import. It replaces the level that is open.'
-      : 'Copying was blocked here. The code is selected below: copy it by hand.';
+      : 'The page was not allowed to copy on its own. Press Copy, or select the code and copy it by hand.';
     el.codeText.readOnly = !paste; el.codeText.value = paste ? '' : code;
-    el.codeMsg.textContent = ''; el.importBtn.hidden = !paste;
+    el.codeMsg.textContent = ''; el.importBtn.hidden = !paste; el.codeCopy.hidden = paste;
     openPanel('code', el.codeText);
-    if (!paste) { try { el.codeText.select(); el.codeText.setSelectionRange(0, code.length); } catch (e) { /* selection is a convenience */ } }
+    if (!paste) selectCode();
   }
+  function selectCode() {
+    try { el.codeText.focus({ preventScroll: true }); el.codeText.select(); el.codeText.setSelectionRange(0, el.codeText.value.length); } catch (e) { /* selection is a convenience */ }
+  }
+  /* the async clipboard is often switched off for embedded pages, and asking anyway logs an error there */
+  function canClip() {
+    try {
+      var c = root.navigator.clipboard, fp = doc.featurePolicy || doc.permissionsPolicy;
+      if (!c || typeof c.writeText !== 'function') return false;
+      return !(fp && typeof fp.allowsFeature === 'function' && !fp.allowsFeature('clipboard-write'));
+    } catch (e) { return false; }
+  }
+  /* older copy command on the selected code box: it only needs a recent press, not a permission */
+  function execCopy() {
+    selectCode();
+    try { return !!doc.execCommand('copy'); } catch (e) { return false; }
+  }
+  function copied(n) { say('Level code copied: ' + n + ' characters. Paste it anywhere to share the level.', 'ok'); }
   function copyCode() {
     commitName();
     var code = encode(record());
     closePanel();
-    function done() { say('Level code copied: ' + code.length + ' characters. Paste it anywhere to share the level.', 'ok'); }
-    function manual() { showCode('copy', code); }
-    try {
-      if (root.navigator.clipboard && root.navigator.clipboard.writeText) root.navigator.clipboard.writeText(code).then(done, manual);
-      else manual();
-    } catch (e) { manual(); }
+    function done() { copied(code.length); }
+    function manual() { showCode('copy', code); if (execCopy()) { closePanel(); done(); } }
+    if (!canClip()) { manual(); return; }
+    try { root.navigator.clipboard.writeText(code).then(done, manual); } catch (e) { manual(); }
   }
   function importCode() {
     var rec;
@@ -679,6 +700,7 @@
     if (!S.ready) return;
     PG.enterEditor();
     onEnter();
+    if (!S.greeted) { S.greeted = true; say('Tap or drag on the grid to place the selected tile. Test plays the level from the start.', '', false, 9000); }
   }
   function leave() { closePanel(true); cancelStroke(); S.active = false; S.hover = null; setCursor(); }
   function exit() { leave(); PG.exitEditor(); }
@@ -817,7 +839,7 @@
       c.textAlign = 'center'; c.textBaseline = 'bottom'; c.fillStyle = 'rgba(255,255,255,0.85)';
       c.fillText('START', X(0), Y(1) - 3);
     }
-    if (g1.x < V.W - 30) { c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = 'rgba(255,255,255,0.85)'; c.fillText('END', g1.x + 6, g1.y + 4); }
+    if (g1.x < V.W - 30) { c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = 'rgba(255,255,255,0.85)'; c.fillText('END', g1.x + 6, Math.max(g1.y, V.top) + 6); }
 
     // flying corridors: FLY and ZIG keep the player between these two lines until the next mode gate
     var gs = S.L ? S.L.gates : [], j, xe, fl;
@@ -875,7 +897,7 @@
     return { x: x / (n || 1), y: y / (n || 1) };
   }
   function onDown(e) {
-    if (!S.active || S.panel) return;
+    if (!S.active || S.panel || (e.pointerType === 'mouse' && e.button > 2)) return;
     e.preventDefault();
     var a = doc.activeElement, p = pt(e), c;
     if (a && a !== cv && a !== doc.body && a.blur) a.blur();
@@ -972,6 +994,11 @@
     click(el.levelsClose, function () { closePanel(); });
     click(el.codeClose, function () { closePanel(); });
     click(el.importBtn, importCode);
+    click(el.codeCopy, function () {
+      var n = el.codeText.value.length;
+      if (execCopy()) { closePanel(); copied(n); }
+      else el.codeMsg.textContent = 'Copying is blocked here. Select the code and copy it by hand.';
+    });
     click(el.newBtn, function () {
       var go = function () { newLevel(); closePanel(); say('New level. The tiles are an example: paint over them or use Clear tiles under More.', 'ok', false, 7000); };
       if (S.dirty) confirmTap(el.newBtn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them.', go); else go();
@@ -992,10 +1019,11 @@
     });
     el.scrub.addEventListener('input', function () { S.camX = V.minX + (+el.scrub.value); clampCam(); });
 
-    if (mqWide) {
-      var onMq = function () { closePanel(true); place(); };
-      if (mqWide.addEventListener) mqWide.addEventListener('change', onMq); else if (mqWide.addListener) mqWide.addListener(onMq);
-    }
+    var onMq = function () { closePanel(true); place(); };
+    [mqWide, mqStack].forEach(function (mq) {
+      if (!mq) return;
+      if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
+    });
     root.addEventListener('resize', function () { V.statusMin = -1; if (S.panel === 'more') closePanel(true); });
   }
 
@@ -1013,7 +1041,7 @@
       bottom: $('edBottom'), status: $('edStatus'), pos: $('edPos'), scrub: $('edScrub'), tools: $('edTools'), view: $('edView'),
       shade: $('edShade'), levelsPanel: $('edLevelsPanel'), levelsInfo: $('edLevelsInfo'), list: $('edList'), newBtn: $('edNew'), levelsClose: $('edLevelsClose'),
       codePanel: $('edCodePanel'), codeTitle: $('edCodeTitle'), codeInfo: $('edCodeInfo'), codeText: $('edCodeText'), codeMsg: $('edCodeMsg'),
-      importBtn: $('edImport'), codeClose: $('edCodeClose')
+      importBtn: $('edImport'), codeCopy: $('edCodeCopy'), codeClose: $('edCodeClose')
     };
     sc = {
       editor: true, hidePlayer: true, L: null, s: E.newState(), dt: 0, beat: 0, pulse: 0, x: 0, y: 0.5, rot: 0,
@@ -1022,7 +1050,8 @@
     try {
       reduced = !!(root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches);
       mqWide = root.matchMedia ? root.matchMedia('(min-width: 1280px)') : null;
-    } catch (e) { mqWide = null; }
+      mqStack = root.matchMedia ? root.matchMedia('(max-width: 620px)') : null;    // same breakpoint as editor.html
+    } catch (e) { mqWide = mqStack = null; }
     S.store = probeStore();
     readSongs();
     buildTools(); fillSelects();

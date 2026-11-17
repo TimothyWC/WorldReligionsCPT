@@ -25,10 +25,12 @@ async function run(browser, sz, opts) {
   opts = opts || {};
   const tag = sz.name + (opts.blocked ? ' (storage blocked)' : '');
   const ok = (cond, what) => { checks++; if (!cond) problems.push(tag + ': ' + what); return !!cond; };
-  const ctx = await browser.newContext({ viewport: { width: sz.width, height: sz.height }, hasTouch: sz.touch, permissions: opts.clipboard ? ['clipboard-read', 'clipboard-write'] : [] });
+  const ctx = await browser.newContext({ viewport: { width: sz.width, height: sz.height }, hasTouch: sz.touch, permissions: opts.blocked ? [] : (opts.clipboard ? ['clipboard-read', 'clipboard-write'] : ['clipboard-read']) });
   if (opts.blocked) {
     await ctx.addInitScript(() => {
       Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('storage is blocked'); } });
+      Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get() { return undefined; } });
+      Document.prototype.execCommand = function () { return false; };
     });
   }
   const page = await ctx.newPage();
@@ -94,6 +96,12 @@ async function run(browser, sz, opts) {
     return bad;
   });
   ok(clipped.length === 0, 'layout: ' + clipped.join(', '));
+  const order = await page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('#edBar button, #edBar input, #edBar select')).filter(e => e.getClientRects().length);
+    const pos = els.map(e => { const r = e.getBoundingClientRect(); return { id: e.id, k: Math.round(r.top / 20) * 10000 + r.left }; });
+    return { dom: pos.map(p => p.id).join(' '), seen: pos.slice().sort((a, b) => a.k - b.k).map(p => p.id).join(' ') };
+  });
+  ok(order.dom === order.seen && /^edExit edName /.test(order.dom), 'the top bar tab order does not follow the screen: ' + order.dom + ' vs ' + order.seen);
 
   /* ---- paint, undo, redo, erase ---- */
   await tool('block');
@@ -291,14 +299,18 @@ async function run(browser, sz, opts) {
   await page.click('#edCopy');
   await page.waitForFunction(() => /copied/.test(document.getElementById('edStatus').textContent) || window.PEditor.state().panel === 'code', null, { timeout: 5000 });
   if ((await state()).panel === 'code') {
+    ok(!!opts.blocked, 'the fallback code box opened although copying should work here');
     ok((await page.inputValue('#edCodeText')) === code, 'the fallback code box does not hold the code');
-    ok(await page.evaluate(() => document.getElementById('edCodeText').readOnly && document.getElementById('edImport').hidden), 'the copy fallback should be read-only without Import');
+    ok(await page.evaluate(() => { const t = document.getElementById('edCodeText'); return t.readOnly && document.getElementById('edImport').hidden && t.selectionStart === 0 && t.selectionEnd === t.value.length; }), 'the copy fallback should be read-only, selected and without Import');
     await shot('8-code-fallback');
+    await page.click('#edCodeCopy');
+    ok(/by hand/.test(await page.textContent('#edCodeMsg')) && (await state()).panel === 'code', 'a failed Copy in the fallback box should say to copy by hand');
     await page.click('#edCodeClose');
-    console.log(tag + ': clipboard blocked, fallback code box shown');
+    console.log(tag + ': no clipboard at all, fallback code box shown');
   } else {
-    if (opts.clipboard) ok((await page.evaluate(() => navigator.clipboard.readText())) === code, 'the clipboard does not hold the code');
-    console.log(tag + ': clipboard write succeeded');
+    ok(!opts.blocked, 'copying reported success although the clipboard is blocked');
+    ok((await page.evaluate(() => navigator.clipboard.readText())) === code, 'the clipboard does not hold the code');
+    console.log(tag + ': code copied to the clipboard');
   }
   // change the level, then import the code: the change must be gone and the code must round-trip
   await tool('block');
@@ -482,9 +494,14 @@ async function runFramed(browser) {
   fs.writeFileSync(wrap, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>' +
     '<iframe sandbox="allow-scripts" src="' + file + '"></iframe>');
-  const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true });
+  const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, permissions: ['clipboard-read'] });
   const page = await ctx.newPage();
-  page.on('console', m => { if (m.type() === 'error') problems.push(tag + ' console: ' + m.text()); });
+  page.on('console', m => {
+    if (m.type() !== 'error') return;
+    // game.js asks for a screen wake lock when a run starts; a frame without that permission logs this. Not the editor's.
+    if (/screen-wake-lock/.test(m.text())) { console.log(tag + ': note: game.js wake lock request logged "' + m.text() + '"'); return; }
+    problems.push(tag + ' console: ' + m.text());
+  });
   page.on('pageerror', e => problems.push(tag + ' pageerror: ' + e.message));
   await page.goto('file://' + wrap);
   const fr = page.frames().find(f => f !== page.mainFrame());
@@ -505,9 +522,17 @@ async function runFramed(browser) {
   await fr.click('#edMoreBtn'); await fr.click('#edCopy');
   await fr.waitForFunction(() => /copied/.test(document.getElementById('edStatus').textContent) || window.PEditor.state().panel === 'code', null, { timeout: 5000 });
   const st = await fr.evaluate(() => ({ panel: window.PEditor.state().panel, box: document.getElementById('edCodeText').value, code: window.PEditor.code() }));
-  ok(st.panel !== 'code' || st.box === st.code, 'the fallback code box is wrong inside a sandbox');
-  await page.screenshot({ path: path.join(out, 'ed-sandbox-code.png') });
-  if (st.panel === 'code') await fr.click('#edCodeClose');
+  if (st.panel === 'code') {
+    ok(st.box === st.code, 'the fallback code box is wrong inside a sandbox');
+    console.log(tag + ': copy not possible, fallback code box shown');
+    await page.screenshot({ path: path.join(out, 'ed-sandbox-code.png') });
+    await fr.click('#edCodeClose');
+  } else {
+    let clip = null;
+    try { clip = await page.evaluate(() => navigator.clipboard.readText()); } catch (e) { clip = 'unreadable: ' + e.message.split('\n')[0]; }
+    ok(clip === st.code, 'the editor said copied inside a sandbox but the clipboard holds: ' + String(clip).slice(0, 60));
+    console.log(tag + ': code copied to the clipboard without the async clipboard API');
+  }
   await fr.click('#edTest');
   await fr.waitForFunction(() => window.__phosphor.G.mode === 'play');
   await page.waitForTimeout(400);

@@ -3,7 +3,7 @@
 (function (root) {
   'use strict';
   var E = root.PEngine, C = E.C;
-  var cv, ctx, W = 0, H = 0, DPR = 1, B = 40, baseY = 0, px0 = 0, portrait = false;
+  var cv, ctx, W = 0, H = 0, DPR = 1, B = 40, baseB = 40, zoomNow = 1, baseY = 0, px0 = 0, portrait = false;
   var cam = { x: 0, y: 0, yT: 0, lastMode: 0 };
   var boundsA = 0;
 
@@ -55,6 +55,7 @@
     portrait = h > w * 1.05;
     if (portrait) { B = w / 12.5; baseY = h * 0.66; px0 = w * 0.24; }
     else { B = Math.min(h / 10.6, w / 16); baseY = h - Math.max(B * 2.1, h - B * 8.6); px0 = w * 0.28; }
+    baseB = B; B = baseB * zoomNow;
     api.view.W = W; api.view.H = H; api.view.B = B; api.view.portrait = portrait;
   }
 
@@ -409,6 +410,9 @@
   }
 
   function draw(sc) {
+    // the editor may zoom out (sc.zoom < 1) to see more of the level; play is always at 1
+    var z = sc.editor ? Math.max(0.35, Math.min(1.5, sc.zoom || 1)) : 1;
+    if (z !== zoomNow) { zoomNow = z; B = baseB * z; api.view.B = B; }
     setPalette(sc.pal, sc.dt, sc.snap);
     updateCam(sc);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
