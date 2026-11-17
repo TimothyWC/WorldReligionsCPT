@@ -53,7 +53,7 @@
     W = w; H = h;
     cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
     portrait = h > w * 1.05;
-    if (portrait) { B = w / 12.5; baseY = h * 0.6; px0 = w * 0.24; }
+    if (portrait) { B = w / 12.5; baseY = h * 0.66; px0 = w * 0.24; }
     else { B = Math.min(h / 10.6, w / 16); baseY = h - Math.max(B * 2.1, h - B * 8.6); px0 = w * 0.28; }
     api.view.W = W; api.view.H = H; api.view.B = B; api.view.portrait = portrait;
   }
@@ -63,7 +63,8 @@
 
   function updateCam(sc) {
     var s = sc.s, dt = sc.dt;
-    cam.x = sc.x;
+    cam.x = sc.camX !== undefined ? sc.camX : sc.x;
+    if (sc.editor) { cam.y = cam.yT = sc.camY || 0; boundsA = 0; cam.lastMode = 0; return; }
     var tgt;
     if (s.mode !== C.HOP) {
       tgt = s.bF + C.BOUNDS_H / 2 - (baseY - H * (portrait ? 0.42 : 0.5)) / B;
@@ -430,8 +431,13 @@
     c2.restore();
   }
 
+  /* screen <-> world helpers (used by the level editor) */
+  function toWorld(px, py) { return { x: cam.x + (px - px0) / B, y: cam.y + (baseY - py) / B }; }
+  function toScreen(wx, wy) { return { x: sx(wx), y: sy(wy) }; }
+
   var api = {
-    init: init, resize: resize, draw: draw, drawSkin: drawSkin, view: { W: 0, H: 0, B: 40, portrait: false },
+    init: init, resize: resize, draw: draw, drawSkin: drawSkin, toWorld: toWorld, toScreen: toScreen,
+    ctx: function () { return ctx; }, view: { W: 0, H: 0, B: 40, portrait: false },
     palette: function (i) { return PALS[i % PALS.length]; }, SKINS: SKINS.length, TINTS: TINTS
   };
   root.PRender = api;

@@ -31,7 +31,7 @@
     mode: 'menu', sel: 0, L: LV[0], s: E.newState(), px: 0, py: 0.5, target: 0, alpha: 0,
     practice: false, attempts: 0, jumps: 0, coins: 0, used: {}, cps: [], lastCp: 0,
     trail: [], parts: [], rot: 0, shake: 0, flash: 0, flashCol: 0, deadT: 0, doneT: 0, shown: false,
-    wait: 0, ti: 0, dh: false, secI: 0, snap: true, dust: 0, hints: {}, exit: 0, bestAtStart: 0, screen: 'menu', back: 'menu'
+    wait: 0, ti: 0, dh: false, custom: null, secI: 0, snap: true, dust: 0, hints: {}, exit: 0, bestAtStart: 0, screen: 'menu', back: 'menu'
   };
   var input = { hold: false, latch: false, block: false, ptrs: {}, nptr: 0, key: false };
   var EV = [];
@@ -68,8 +68,28 @@
     EV.length = 0;
   }
 
-  function startLevel(i, practice) {
-    G.sel = i; G.L = LV[i]; G.practice = !!practice; G.attempts = 0; G.jumps = 0; G.cps = []; G.hints = {};
+  function startLevel(i, practice) { G.custom = null; G.sel = i; startL(LV[i], practice); }
+
+  /* def = a level definition in the levels.js format; opts.onExit runs when the player leaves it */
+  function playCustom(def, opts) {
+    var L;
+    try { L = E.compile(def); } catch (e) { toast('That level has a problem: ' + e.message); return false; }
+    G.custom = { onExit: opts && opts.onExit };
+    startL(L, opts && opts.practice);
+    return true;
+  }
+
+  var wake = null;
+  function keepAwake(on) {
+    try {
+      if (on && !wake && root.navigator.wakeLock) {
+        root.navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }, function () { /* refused */ });
+      } else if (!on && wake) { wake.release(); wake = null; }
+    } catch (e) { /* unsupported */ }
+  }
+
+  function startL(L, practice) {
+    G.L = L; G.practice = !!practice; G.attempts = 0; G.jumps = 0; G.cps = []; G.hints = {};
     G.bestAtStart = rec(G.L.id)[practice ? 'p' : 'n'];
     G.parts.length = 0;
     setTrace(G.L);
@@ -77,8 +97,9 @@
     ui.hud.hidden = false;
     ui.cpBar.hidden = !G.practice;
     au('init'); au('resume'); au('stopSong', 0.05);
+    keepAwake(true);
     spawn();
-    banner('CH' + (i + 1) + ' ' + G.L.name.toUpperCase(), G.practice ? 'Practice: checkpoints on' : (rec(G.L.id).att <= 1 ? 'Tap or press Space to jump' : ''), 2200);
+    banner((G.custom ? '' : 'CH' + (G.sel + 1) + ' ') + G.L.name.toUpperCase(), G.practice ? 'Practice: checkpoints on' : (rec(G.L.id).att <= 1 ? 'Tap or press Space to jump' : ''), 2200);
   }
 
   function spawn() {
@@ -103,10 +124,9 @@
     ringFx(s.x, s.y, 1, 2.4);
     G.shake = save.calm ? 0 : 1; flash(0.38, 1);
     var r = rec(G.L.id), key = G.practice ? 'p' : 'n', pct = progress();
-    if (pct > r[key]) {
-      r[key] = pct;
-      if (!G.practice && pct > G.bestAtStart && G.attempts > 1) toast('New best ' + pct + '%');
-    }
+    var isBest = pct > r[key];
+    if (isBest) r[key] = pct;
+    toast(isBest && !G.practice && G.attempts > 1 ? 'New best ' + pct + '%' : pct + '%');
     if (G.practice && G.cps.length) {
       var top = G.cps[G.cps.length - 1];
       if (s.t - top.s.t < C.SPB * 1.5) {
@@ -130,12 +150,13 @@
   }
 
   function showComplete() {
-    G.shown = true;
-    var L = G.L, r = rec(L.id), n = bits(G.coins), last = G.sel >= LV.length - 1;
+    G.shown = true; G.shownAt = root.performance.now();
+    var L = G.L, r = rec(L.id), n = bits(G.coins), last = !!G.custom || G.sel >= LV.length - 1;
+    ui.doneMenu.textContent = G.custom ? 'Back to editor' : 'Back to levels';
     ui.doneTitle.textContent = G.practice ? 'Practice run complete' : 'Signal locked';
     ui.doneInfo.textContent = G.practice
       ? L.name + ' finished with checkpoints. Next step: one clean run in normal mode.'
-      : L.name + ' cleared' + (bits(r.cores) >= L.coins && L.coins ? ' with every core recovered.' : '. ' + (L.coins - bits(r.cores)) + ' core' + (L.coins - bits(r.cores) === 1 ? '' : 's') + ' still out there.');
+      : L.name + ' cleared' + (bits(r.cores) >= L.coins ? (L.coins ? ' with every core recovered.' : '.') : '. ' + (L.coins - bits(r.cores)) + ' core' + (L.coins - bits(r.cores) === 1 ? '' : 's') + ' still out there.');
     ui.stAtt.textContent = G.attempts; ui.stJumps.textContent = G.jumps; ui.stCores.textContent = n + '/' + L.coins;
     ui.next.hidden = last;
     ui.next.className = last ? '' : 'primary';
@@ -152,6 +173,7 @@
     au('stopSong', 0.05);
     ui.pauseInfo.textContent = G.L.name + ' / ' + (G.practice ? 'practice' : 'normal') + ' / ' + progress() + '%';
     ui.toggleMode.textContent = G.practice ? 'Switch to normal' : 'Switch to practice';
+    ui.quit.textContent = G.custom ? 'Back to editor' : 'Back to levels';
     show('pause');
   }
   function resume() {
@@ -163,8 +185,13 @@
 
   function toMenu() {
     au('stopSong', 0.08);
+    keepAwake(false);
     ui.hud.hidden = true;
     G.practice = false; G.cps = [];
+    if (G.custom) {
+      var cb = G.custom.onExit; G.custom = null;
+      if (typeof cb === 'function') { G.mode = 'menu'; cb(); return; }
+    }
     buildMenu();
     startDemo(G.sel);
     show('menu');
@@ -263,7 +290,7 @@
   function advance(dt) {
     var L = G.L, s = G.s, play = G.mode === 'play';
     G.target += dt * L.bpm / 60;
-    if (play) {
+    if (play && (G.scale || 1) === 1) {
       var sb = au('songBeat');
       if (typeof sb === 'number' && isFinite(sb)) {
         var err = sb - G.target;
@@ -348,6 +375,7 @@
     root.requestAnimationFrame(frame);
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
     if (!(dt > 0)) return;
+    if (G.mode === 'editor') { if (root.PEditor && root.PEditor.frame) root.PEditor.frame(dt); return; }
     if (G.mode === 'play') advance(dt * (G.scale || 1));
     else if (G.mode === 'menu') {
       if (G.wait > 0) { G.wait -= dt; if (G.wait <= 0) startDemo(G.sel); }
@@ -501,16 +529,17 @@
     $('btnPause').addEventListener('click', pause);
     $('btnResume').addEventListener('click', resume);
     $('btnRestart').addEventListener('click', function () { G.cps = []; show(null); G.attempts = 0; G.jumps = 0; spawn(); });
-    ui.toggleMode.addEventListener('click', function () { startLevel(G.sel, !G.practice); });
-    $('btnQuit').addEventListener('click', toMenu);
+    ui.toggleMode.addEventListener('click', function () { startL(G.L, !G.practice); });
+    ui.quit.addEventListener('click', toMenu);
     $('btnPauseSettings').addEventListener('click', function () { openSettings('pause'); });
     $('btnSettings').addEventListener('click', function () { openSettings('menu'); });
     $('btnHow').addEventListener('click', function () { show('how'); });
     ui.howClose.addEventListener('click', function () { show('menu'); });
     ui.setClose.addEventListener('click', function () { persist(); show(G.back); });
-    ui.next.addEventListener('click', function () { startLevel(Math.min(LV.length - 1, G.sel + 1), false); });
-    ui.again.addEventListener('click', function () { startLevel(G.sel, G.practice); });
-    $('btnDoneMenu').addEventListener('click', toMenu);
+    function settled() { return root.performance.now() - (G.shownAt || 0) > 650; }
+    ui.next.addEventListener('click', function () { if (settled()) startLevel(Math.min(LV.length - 1, G.sel + 1), false); });
+    ui.again.addEventListener('click', function () { if (settled()) startL(G.L, G.practice); });
+    ui.doneMenu.addEventListener('click', toMenu);
     $('btnCp').addEventListener('click', function () { addCp(false); });
     $('btnCpDel').addEventListener('click', delCp);
 
@@ -543,8 +572,9 @@
       pauseInfo: $('pauseInfo'), toggleMode: $('btnToggleMode'), doneTitle: $('doneTitle'), doneInfo: $('doneInfo'),
       stAtt: $('stAtt'), stJumps: $('stJumps'), stCores: $('stCores'), next: $('btnNext'), again: $('btnAgain'),
       volMusic: $('volMusic'), volSfx: $('volSfx'), calm: $('optCalm'), auto: $('optAuto'), skins: $('skins'), tints: $('tints'),
-      setClose: $('btnSetClose'), howClose: $('btnHowClose')
+      setClose: $('btnSetClose'), howClose: $('btnHowClose'), quit: $('btnQuit'), doneMenu: $('btnDoneMenu')
     };
+    if ($('editor')) SCREENS.push('editor');
     R.init(ui.canvas);
     wire();
     buildMenu();
@@ -557,6 +587,13 @@
       G: G, input: input, levels: LV, save: save, startLevel: startLevel, toMenu: toMenu, pause: pause, resume: resume,
       press: function () { input.key = true; setHold(); }, release: function () { input.key = false; setHold(); }
     };
+    /* API for the level editor */
+    root.PGame = {
+      playCustom: playCustom, toMenu: toMenu, show: show, toast: toast, audio: au, render: R,
+      enterEditor: function () { au('stopSong', 0.1); ui.hud.hidden = true; G.custom = null; G.mode = 'editor'; show('editor'); ui.root.classList.remove('scrim'); },
+      exitEditor: function () { G.mode = 'menu'; toMenu(); }
+    };
+    if (root.PEditor && typeof root.PEditor.init === 'function') root.PEditor.init();
   }
 
   var hot = root.claude && root.claude.hot;
