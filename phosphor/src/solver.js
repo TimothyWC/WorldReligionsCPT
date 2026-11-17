@@ -29,7 +29,11 @@
     var visited = [];
     // a needed core that is already behind the player can never be collected: prune those branches early
     var need = L.objs.filter(o => o.t === 'c' && (o.bit & needCoins)).map(o => ({ bit: o.bit, x: o.x + 2.2 }));
-    var stack = [{ s: E.newState(), a: 0, first: false, act: false }];
+    var goalX = opts.goalX || Infinity;          // optional: reaching this x counts as a win (local checks)
+    var root0 = opts.start ? E.copy(opts.start) : E.newState();
+    // optional phase: inputs may only change on steps = phase (mod dec); used to measure timing tolerance
+    for (var ph = 0; ph < (opts.phase || 0); ph++) E.step(L, root0, false, null);
+    var stack = [{ s: root0, a: 0, first: false, act: false }];
     var best = 0, bestState = null, nodes = 0;
     var limit = opts.limit || 4e7;
     while (stack.length) {
@@ -41,7 +45,7 @@
       for (var i = 0; i < DEC && !s.dead && !s.done; i++) E.step(L, s, hold, null);
       nodes++;
       if (s.x > best) { best = s.x; bestState = E.copy(s); }
-      if (s.done) {
+      if (s.done || (!s.dead && s.x >= goalX)) {
         if ((s.coins & needCoins) !== needCoins) continue;
         var acts = [];
         for (var i = 1; i < stack.length; i++) acts.push(stack[i].act);

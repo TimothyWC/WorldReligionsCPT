@@ -99,7 +99,7 @@
     au('init'); au('resume'); au('stopSong', 0.05);
     keepAwake(true);
     spawn();
-    banner((G.custom ? '' : 'CH' + (G.sel + 1) + ' ') + G.L.name.toUpperCase(), G.practice ? 'Practice: checkpoints on' : (rec(G.L.id).att <= 1 ? 'Tap or press Space to jump' : ''), 2200);
+    banner((G.custom ? (G.custom.daily ? 'DAILY ' : '') : 'CH' + (G.sel + 1) + ' ') + G.L.name.toUpperCase(), G.practice ? 'Practice: checkpoints on' : (rec(G.L.id).att <= 1 ? 'Tap or press Space to jump' : ''), 2200);
   }
 
   function spawn() {
@@ -154,7 +154,7 @@
   function showComplete() {
     G.shown = true; G.shownAt = root.performance.now();
     var L = G.L, r = rec(L.id), n = bits(G.coins), last = !!G.custom || G.sel >= LV.length - 1;
-    ui.doneMenu.textContent = G.custom ? 'Back to editor' : 'Back to levels';
+    ui.doneMenu.textContent = G.custom ? (G.custom.label || 'Back to editor') : 'Back to levels';
     ui.doneTitle.textContent = G.practice ? 'Practice run complete' : 'Signal locked';
     ui.doneInfo.textContent = G.practice
       ? L.name + ' finished with checkpoints. Next step: one clean run in normal mode.'
@@ -181,7 +181,7 @@
     au('stopSong', 0.05);
     ui.pauseInfo.textContent = G.L.name + ' / ' + (G.practice ? 'practice' : 'normal') + ' / ' + progress() + '%';
     ui.toggleMode.textContent = G.practice ? 'Switch to normal' : 'Switch to practice';
-    ui.quit.textContent = G.custom ? 'Back to editor' : 'Back to levels';
+    ui.quit.textContent = G.custom ? (G.custom.label || 'Back to editor') : 'Back to levels';
     show('pause');
   }
   function resume() {
@@ -219,6 +219,83 @@
     return G.dh;
   }
 
+  /* ---------- the Daily: a generated level, the same for everyone on a given date, proven beatable ---------- */
+  var DAILY = { def: null, L: null, date: '', ready: false };
+  var NAME_A = ['Quiet', 'Split', 'Hollow', 'Bright', 'Cold', 'Loose', 'Narrow', 'Late', 'Double', 'Stray', 'Sharp', 'Slow', 'Thin', 'Hard', 'Open', 'Blind'];
+  var NAME_B = ['Lattice', 'Echo', 'Carrier', 'Ripple', 'Sweep', 'Harmonic', 'Drift', 'Pulse', 'Gate', 'Envelope', 'Filter', 'Phase', 'Burst', 'Fold', 'Static', 'Decay'];
+  var DAILY_SONGS = [['trace', 128], ['carrier', 140], ['sidebands', 136], ['overdrive', 150]];
+
+  function rng32(a) {
+    return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+  function today() {
+    var d = new Date(), m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+  }
+  function noCores(ch) {
+    var rows = (ch.rows || ch).map(function (r) { return r.replace(/c/g, '.'); });
+    return rows;
+  }
+  function makeDaily(date, salt) {
+    var seed = +date.replace(/-/g, '') * 16 + salt, rnd = rng32(seed), P = root.PLevels.pool;
+    function take(list) { return list.splice(Math.floor(rnd() * list.length), 1)[0]; }
+    var hop = P.hop.slice(), sets = P.sets.slice(), chunks = [], song = DAILY_SONGS[Math.floor(rnd() * DAILY_SONGS.length)];
+    var pals = [0, 1, 2, 3, 4, 5].sort(function () { return rnd() - 0.5; }), pi = 0;
+    function add(ch, newPal) { chunks.push(newPal ? { pal: pals[pi++ % pals.length], rows: noCores(ch) } : noCores(ch)); }
+    add(['................'], true);
+    for (var part = 0; part < 3; part++) {
+      var n = 3 + Math.floor(rnd() * 2), i;
+      for (i = 0; i < n; i++) add(take(hop), i === 0 && part > 0);
+      if (part < 2) { var set = take(sets); for (i = 0; i < set.length; i++) add(set[i], i === 0); add(['........'], false); }
+    }
+    add(['................'], false);
+    return {
+      id: 'daily-' + date, name: NAME_A[Math.floor(rnd() * NAME_A.length)] + ' ' + NAME_B[Math.floor(rnd() * NAME_B.length)],
+      song: song[0], bpm: song[1], diff: 'Daily', color: pals[0], chunks: chunks
+    };
+  }
+  /* cheap part: build today's candidate so the card can show its name */
+  function peekDaily() {
+    var date = today(), salt = 0;
+    if (DAILY.date === date && DAILY.def) return DAILY;
+    try { var c = JSON.parse(root.localStorage.getItem('phosphor.daily.v1') || 'null'); if (c && c.date === date && c.ok) { salt = c.salt | 0; DAILY.ready = true; } } catch (e) { /* no cache */ }
+    DAILY.date = date; DAILY.salt = salt;
+    if (!DAILY.ready) DAILY.ready = false;
+    DAILY.def = makeDaily(date, salt);
+    try { DAILY.L = E.compile(DAILY.def); } catch (e2) { DAILY.L = null; }
+    return DAILY;
+  }
+  /* expensive part, once per day per browser: ask the solver, and reroll until it says yes */
+  function proveDaily() {
+    var S = root.PSolver, salt, def, L, r;
+    if (DAILY.ready && DAILY.L) return true;
+    if (!S) { DAILY.ready = !!DAILY.L; return DAILY.ready; }
+    for (salt = DAILY.salt || 0; salt < 12; salt++) {
+      try {
+        def = makeDaily(DAILY.date, salt); L = E.compile(def);
+        r = S.solve(L, { margin: 0.1, limit: 2500000 });
+      } catch (e) { r = null; }
+      if (r && r.ok) {
+        DAILY.def = def; DAILY.L = L; DAILY.salt = salt; DAILY.ready = true;
+        DEMOS[def.id] = S.toToggles(r);
+        try { root.localStorage.setItem('phosphor.daily.v1', JSON.stringify({ date: DAILY.date, salt: salt, ok: 1 })); } catch (e3) { /* fine */ }
+        return true;
+      }
+    }
+    return false;
+  }
+  function playDaily(practice) {
+    var card = ui.levels.querySelector('.card.daily'), b = card && card.querySelector('[data-act="' + (practice ? 'practice' : 'play') + '"]'), label = b ? b.textContent : '';
+    function go() {
+      if (b) b.textContent = label;
+      if (!proveDaily()) { toast('Could not build a fair level today. Try again tomorrow.'); return; }
+      G.custom = { daily: true, label: 'Back to levels' };
+      startL(DAILY.L, practice);
+    }
+    if (DAILY.ready && DAILY.L) go();
+    else { if (b) b.textContent = 'Tuning'; root.setTimeout(go, 60); }
+  }
+
   /* ---------- practice checkpoints ---------- */
   var HAZ = '^v,`<>*x';
   function safeSpot() {
@@ -253,7 +330,7 @@
   }
 
   /* ---------- sim ---------- */
-  var HINT = { G: ['FLY', 'Hold to climb, release to sink'], Z: ['ZIG', 'Hold to rise, release to dive'], U: ['GRAVITY UP', 'You now fall towards the ceiling'], D: ['GRAVITY DOWN', ''], H: ['HOP', ''], '1': ['SLOW', ''], '2': ['NORMAL SPEED', ''], '3': ['FAST', ''], '4': ['FASTER', ''] };
+  var HINT = { G: ['FLY', 'Hold to climb, release to sink'], Z: ['ZIG', 'Hold to rise, release to dive'], U: ['GRAVITY UP', 'You now fall towards the ceiling'], '1': ['SLOW', ''], '3': ['FAST', ''], '4': ['FASTER', ''] };
 
   function flushEvents(play) {
     var s = G.s, i, e, fy = s.y - 0.5 * s.grav;
@@ -354,7 +431,12 @@
     }
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 3.2);
     if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 1.6);
-    if (G.mode === 'done') G.exit += dt;
+    if (G.mode === 'done') {
+      G.exit += dt;
+      G.rot += dt * 9;
+      G.trail.push(s.x + G.exit * 11 * (1 + G.exit * 1.5), s.y + G.exit * G.exit * 3 * s.grav);
+      if (G.trail.length > 60) G.trail.splice(0, G.trail.length - 60);
+    }
   }
 
   var lastPct = -1;
@@ -365,6 +447,8 @@
     sc.L = L; sc.s = s; sc.dt = dt; sc.beat = G.target;
     sc.x = live ? G.px + (s.x - G.px) * G.alpha : s.x;
     sc.y = live ? G.py + (s.y - G.py) * G.alpha : s.y;
+    if (s.done) { sc.camX = s.x; sc.x = s.x + G.exit * 11 * (1 + G.exit * 1.5); sc.y = s.y + G.exit * G.exit * 3 * s.grav; }
+    else sc.camX = undefined;
     var pu = G.mode === 'play' ? au('pulse') : null;
     sc.pulse = typeof pu === 'number' ? pu : Math.exp(-(((G.target % 1) + 1) % 1) * 5) * (G.mode === 'menu' ? 0.6 : 1);
     sc.rot = G.rot; sc.used = G.used; sc.coins = G.coins; sc.owned = rec(L.id).cores;
@@ -439,13 +523,25 @@
         '<div class="rowb"><button class="primary" data-act="play">Play</button><button data-act="practice">Practice</button></div>' +
         '</article>';
     });
+    var D = peekDaily();
+    if (D.L) {
+      var dr = rec(D.def.id), dcol = css(R.palette(D.def.color).trace);
+      html += '<article class="card daily" tabindex="0" data-i="daily" style="--c:' + dcol + '" aria-label="Daily level">' +
+        '<div class="card-head"><span class="ch">DAILY</span><span>' + D.date + '</span></div>' +
+        '<h2>' + esc(D.def.name) + '</h2>' +
+        '<div class="card-meta"><span>' + D.def.bpm + ' BPM' + (dr.done ? ' / cleared' : '') + '</span><span>bot-verified</span></div>' +
+        '<div class="prog"><span>Normal</span><div class="meter"><i style="transform:scaleX(' + dr.n / 100 + ')"></i></div><b>' + dr.n + '%</b></div>' +
+        '<div class="prog practice"><span>Practice</span><div class="meter"><i style="transform:scaleX(' + dr.p / 100 + ')"></i></div><b>' + dr.p + '%</b></div>' +
+        '<div class="rowb"><button class="primary" data-act="play">Play</button><button data-act="practice">Practice</button></div>' +
+        '</article>';
+    }
     box.innerHTML = html;
   }
 
   function selectCard(i) {
     if (i === G.sel && G.mode === 'menu') return;
     var cards = ui.levels.querySelectorAll('.card');
-    for (var k = 0; k < cards.length; k++) cards[k].classList.toggle('sel', k === i);
+    for (var k = 0; k < cards.length; k++) cards[k].classList.toggle('sel', cards[k].getAttribute('data-i') === String(i));
     startDemo(i);
   }
 
@@ -527,21 +623,26 @@
     root.addEventListener('orientationchange', function () { setTimeout(R.resize, 250); });
 
     ui.root.addEventListener('pointerdown', unlockAudio);
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchend', unlockAudio, { passive: true });
     ui.root.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('button')) au('sfx', 'click'); });
 
     ui.levels.addEventListener('click', function (e) {
       var card = e.target.closest('.card'); if (!card) return;
-      var i = +card.getAttribute('data-i'), b = e.target.closest('button');
+      var b = e.target.closest('button');
+      if (card.getAttribute('data-i') === 'daily') { if (b) playDaily(b.getAttribute('data-act') === 'practice'); return; }
+      var i = +card.getAttribute('data-i');
       if (b) startLevel(i, b.getAttribute('data-act') === 'practice');
       else selectCard(i);
     });
     ui.levels.addEventListener('pointerover', function (e) {
       if (e.pointerType !== 'mouse') return;
-      var card = e.target.closest('.card'); if (card) selectCard(+card.getAttribute('data-i'));
+      var card = e.target.closest('.card'); if (card && card.getAttribute('data-i') !== 'daily') selectCard(+card.getAttribute('data-i'));
     });
-    ui.levels.addEventListener('focusin', function (e) { var card = e.target.closest('.card'); if (card) selectCard(+card.getAttribute('data-i')); });
+    ui.levels.addEventListener('focusin', function (e) { var card = e.target.closest('.card'); if (card && card.getAttribute('data-i') !== 'daily') selectCard(+card.getAttribute('data-i')); });
     ui.levels.addEventListener('keydown', function (e) {
-      if (e.code === 'Enter' && e.target.classList.contains('card')) startLevel(+e.target.getAttribute('data-i'), false);
+      if (e.code !== 'Enter' || !e.target.classList.contains('card')) return;
+      if (e.target.getAttribute('data-i') === 'daily') playDaily(false); else startLevel(+e.target.getAttribute('data-i'), false);
     });
 
     $('btnPause').addEventListener('click', pause);
@@ -604,7 +705,8 @@
     // hooks for automated tests
     root.__phosphor = {
       G: G, input: input, levels: LV, save: save, startLevel: startLevel, toMenu: toMenu, pause: pause, resume: resume,
-      press: function () { input.key = true; setHold(); }, release: function () { input.key = false; setHold(); }
+      press: function () { input.key = true; setHold(); }, release: function () { input.key = false; setHold(); },
+      daily: DAILY, playDaily: playDaily, makeDaily: makeDaily
     };
     /* API for the level editor */
     root.PGame = {

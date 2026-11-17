@@ -97,13 +97,14 @@
   function vHat(S, t, d, v, hp, side) { nz(S, side > 0 ? S.right : side < 0 ? S.left : S.drum, t, d, v * 0.36, 'highpass', hp); }
   function vTom(S, t, d, v) { var f = 70 + 140 * v; tone(S, S.drum, t, d, 0.5, 'sine', f * 1.7, f, 0.07); }
 
-  var BASS_LV = [0.185, 0.078, 0.14];   // 0 clean saw, 1 gritty square+saw, 2 reese (two detuned saws)
+  var BASS_LV = [0.185, 0.078, 0.14, 0.1];   // 0 clean saw, 1 gritty square+saw, 2 reese (two detuned saws), 3 rubbery square
   function vBass(S, t, d, m, v, br) {
     var c = S.c, k = S.def.bass, f = mtof(m), e = t + d + 0.05, fl = c.createBiquadFilter();
     var g = adsr(c, t, d, v * BASS_LV[k], 0.005, 0.035, 0.8), lo = 160 + 1000 * br, o;
-    o = osc(S, k === 1 ? 'square' : 'sawtooth', f, t, e, k === 2 ? -14 : 0); o.connect(fl);
-    if (k) osc(S, 'sawtooth', f, t, e, k === 2 ? 14 : 6).connect(fl);
-    fl.type = 'lowpass'; fl.Q.value = k === 1 ? 5 : 2.5;
+    o = osc(S, k % 2 ? 'square' : 'sawtooth', f, t, e, k === 2 ? -14 : 0); o.connect(fl);
+    if (k === 1 || k === 2) osc(S, 'sawtooth', f, t, e, k === 2 ? 14 : 6).connect(fl);
+    if (k === 3) { o.frequency.setValueAtTime(f * 1.3, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.06); }   // snaps down onto the note
+    fl.type = 'lowpass'; fl.Q.value = k === 3 ? 8 : k === 1 ? 5 : 2.5;
     fl.frequency.setValueAtTime(lo * (k === 2 ? 2 : 4.5), t); fl.frequency.exponentialRampToValueAtTime(lo, t + (k === 2 ? 0.3 : 0.13));
     fl.connect(g); g.connect(S.duck); free(o, g);
   }
@@ -116,7 +117,8 @@
   }
   // lead kinds: [wave1, wave2, detune cents, cutoff, Q, attack, release, level]
   var LEADS = [['sawtooth', 'square', 9, 3600, 1, 0.01, 0.1, 0.095], ['square', 'sawtooth', -11, 2300, 4, 0.006, 0.07, 0.085],
-               ['sawtooth', 'sawtooth', 15, 3000, 2, 0.005, 0.07, 0.12], ['triangle', 'sawtooth', 8, 1400, 0.7, 0.08, 0.4, 0.12]];
+               ['sawtooth', 'sawtooth', 15, 3000, 2, 0.005, 0.07, 0.12], ['triangle', 'sawtooth', 8, 1400, 0.7, 0.08, 0.4, 0.12],
+               ['square', 'sawtooth', 1207, 3200, 6, 0.004, 0.06, 0.09]];   // 4: thin and wiry, second voice an octave up
   function vLead(S, t, d, m, v, k) {
     var c = S.c, K = LEADS[k], f = mtof(m), e = t + d + K[6] + 0.02, fl = c.createBiquadFilter();
     var g = adsr(c, t, d, v * K[7], K[5], K[6], 0.75), cut = Math.max(K[3], f * 2.5), o = osc(S, K[0], f, t, e);
@@ -195,7 +197,7 @@
   // ---------------------------------------------------------------- song data
   // Drum strings: 16 chars per bar. x hit, X accent, o soft, g ghost, . rest.
   // bass: r root, R root+octave, f fifth, t third, _ hold.   arp: digit = chord-tone index (3+ wraps up an octave), _ hold.
-  // lead / mel: "note/len" tokens (len in 16ths, r = rest).   ch: one chord per bar, looped across the section.
+  // lead / mel: "note/len" tokens (len in 16ths, default 1, r = rest).   ch: one chord per bar, looped across the section.
   var Z = '................', K4 = 'x...x...x...x...', BK = '....x.......x...', OFF = '..x...x...x...x.', OFS = '..o...o...o...o.';
   var H8 = 'o.o.o.o.o.o.o.o.', H16 = 'ogxgogxgogxgogxg', DRONE = 'r_______________', P8 = 'r.r.r.r.r.r.r.r.', K1 = 'x...............';
   function x(s, n) { return s.repeat(n); }
@@ -218,6 +220,16 @@
   var OBASS = 'r____.r__.r___R.' + 'r_.r_____.r_.f_.', OSTAB = '..x..x....o.....' + '..x..x....o..x.x';
   var OCH = 'Dm Bb Gm Eb Dm Bb Eb A', OVAMP = 'Dm Dm Eb Cm', OTEASE = 'd5/2 r/1 d5/1 eb5/2 d5/2 r/8 r/16 eb5/2 r/1 eb5/1 g5/2 eb5/2 r/8 r/16';
   var OARP = '0.2.3.2.0.2.3.5.', A16 = '0232023202320232', OTICK = 'x...x...x...x...', OTOCK = 'x.o.x.o.x.o.x.o.';
+  // Sidebands: pedal-note pluck sequence over a 3-3-2 kick, off-beat hook
+  var SRIFF = 'g4 r d5 g4 r bb4 r c5 d5 r g4 r f5/2 d5 r  g4 r d5 g4 r bb4 r c5 d5 r f5 r g5/2 d5 bb4 ' +
+              'g4 r e5 g4 r c5 r d5 e5 r g4 r g5/2 e5 r  g4 r e5 g4 r c5 r d5 e5 r c5 r bb4/2 a4 r';
+  var SBREAK = 'g4 r d5 g4 r/12 r/8 bb4 r c5 d5 r/4 g4 r e5 g4 r/12 r/8 c5 r d5 e5 r/4';
+  var SA = 'r/2 d5 g5 r f5 d5/2 bb4 d5 r c5/3 r/2 ', SB = 'r/2 e5 g5 r e5 c5/2 g4 c5 r d5/3 r/2 ';
+  var SHOOK = SA + SB + 'r/2 e5 a5 r g5 e5/2 c5 e5 r d5/3 r/2 r/2 f5 a5 r f5 d5/2 a4 d5 f5 a5 g5/2 f5/2 ' + SA + SB +
+              'r/2 d5 f5 r d5 bb4/2 f5 bb5 r a5/3 r/2 r/2 c5 f5 r a5 f5/2 g5/2 a5/2 c6/2 d6/2';
+  var SAIR = 'bb5/8 a5/4 f5/4 g5/8 e5/4 c5/4 a5/6 g5/2 e5/4 c5/4 d5/4 f#5/4 a5/4 d6/4';
+  var SK = 'x..o..o.x..o..o.', SKF = x(SK, 3) + 'x..o..o.x..o.xox', SHAT = '.gx.gx.g.gx.gx.g', SCH = 'Gm Gm C C';
+  var SBASS = 'r_.R.r_.r.R.rf.R', SPOLY = '..3..4..2..3..4.', OH2 = Z + '..............x.';
 
   var DEFS = {
     trace: { name: 'First Trace', bpm: 128, len: 128, bass: 0, lead: 0, bassLo: 36, sec: [
@@ -262,6 +274,21 @@
         stab: OSTAB, tm: x(Z, 3) + '..........x.x.oo', lv: { arp: 0.7, stab: 0.8, o: 0.7, sh: 0.6 } },
       { b: [176, 192], ch: 'Dm Dm Eb Dm', cr: 0.8, pad: 0.8, pb: 0.25, h: OTOCK + OTOCK + OTICK + OTICK, bass: DRONE, bq: [0.6, 0.2],
         mel: 'd5/2 r/1 d5/1 eb5/2 d5/2 r/8 r/16 r/16 r/16', lv: { bass: 0.4 } }
+    ] },
+    sidebands: { name: 'Sidebands', bpm: 136, len: 144, bass: 3, lead: 4, bassLo: 41, pluck: 'square', sec: [
+      { b: [0, 16], ch: SCH, pad: 0.4, pb: 0.4, mel: SRIFF, md: 0.1, h: Z + OFS + SHAT + SHAT, tm: x(Z, 3) + '..........x.o.xX', lv: { mel: 0.45 } },
+      { b: [16, 32], ch: SCH, cr: 0.7, pad: 0.5, k: SK, c: BK, h: SHAT, bass: SBASS, mel: SRIFF, md: 0.1, lv: { mel: 0.42, h: 1.4 } },
+      { b: [32, 48], ch: SCH, pad: 0.6, k: SKF, c: x(BK, 3) + '....x.......x.xx', h: SHAT, o: OH2, bass: SBASS, mel: SRIFF, md: 0.1, arp: SPOLY,
+        lv: { mel: 0.42, arp: 0.7, h: 1.4 } },
+      { b: [48, 64], ch: SCH, cr: 0.6, pad: 0.7, pb: 0.45, k: K1, s: x('........x.......', 3) + '........x...o.xX', h: OFS, bass: 'r_______........', bq: 0.35,
+        mel: SBREAK, md: 0.25, rise: [8, 8], lv: { bass: 0.7, mel: 0.5 } },
+      { b: [64, 96], ch: 'Gm C Am Dm Gm C Bb F', cr: 1, pad: 0.5, k: SKF, c: BK, h: SHAT, o: OH2, bass: SBASS, lead: SHOOK, arp: SPOLY, tm: CTOM, lv: { arp: 0.6, h: 1.4 } },
+      { b: [96, 112], ch: 'Bb C Am D', cr: 0.7, pad: 0.85, pb: 0.75, k: 'x.......x.......', c: '............o...', s: x(Z, 3) + '........o.o.x.xX', h: SHAT,
+        bass: 'r_______r_____R.', bq: 0.4, lead: SAIR, lk: 3, arp: '0...2...3...2...', ao: 12, rise: [8, 8], lv: { h: 0.6, arp: 0.5, bass: 0.7, lead: 0.85 } },
+      { b: [112, 128], ch: 'Gm C Am Dm', cr: 1, pad: 0.5, k: x(K4, 3) + 'x...x...x...x.xx', s: BK, c: BK, h: H16, o: OFF, sh: '...x..x....x..x.',
+        bass: 'rrR.rrR.rrR.rRrR', lead: SHOOK, lo: 12, arp: A16, ao: 12, lv: { arp: 0.45, lead: 0.9, o: 0.7 } },
+      { b: [128, 144], ch: SCH, cr: 0.8, pad: 0.5, pb: 0.4, k: K1 + x(Z, 3), mel: SRIFF, md: 0.1, h: SHAT + SHAT + OFS + Z, bass: 'r_______........' + x(Z, 3),
+        lv: { mel: 0.45 } }
     ] },
     menu: { name: 'Standby', bpm: 100, len: 32, bass: 0, lead: 3, bassLo: 33, pluck: 'triangle', vol: 0.5, sec: [
       { b: [0, 32], ch: 'FM7 FM7 Am7 Am7 CM7 CM7 G G', pad: 1, pb: 0.6, k: 'o.......o.......', bass: DRONE, bq: 0.2, lv: { k: 0.6, bass: 0.6 },
@@ -334,7 +361,7 @@
           q = M.notes[j]; i = r + q[0];
           if (i >= ns) continue;
           if (key === 'lead') add(i, vLead, key, q[1] * sd * 0.92, q[2] + tr + (sc.lo || 0), L(key), sc.lk == null ? D.lead : sc.lk);
-          else add(i, vPluck, key, q[1] * sd + 0.3, q[2] + tr, L(key), 0);
+          else add(i, vPluck, key, q[1] * sd + (sc.md == null ? 0.3 : sc.md), q[2] + tr, L(key), j % 2 ? 0.3 : -0.3);
         }
       });
       if (sc.pad) for (i = 0; i < ns; i += span * 16) {   // one pad per chord; a repeated chord is held for two bars
@@ -442,6 +469,9 @@
     if (!cur || !ctx) return null;
     return cur.b0 + (ctx.currentTime - cur.anchor) / cur.spb;
   }
+  function latency() {   // seconds between scheduling and hearing, for the game's audio offset
+    try { return ctx ? (+ctx.outputLatency || 0) + (+ctx.baseLatency || 0) : 0; } catch (e) { return 0; }
+  }
   function pulse() {
     if (!cur || !ctx) return 0;
     var now = ctx.currentTime, k = cur.kicks, i = k.length, dt;
@@ -500,7 +530,7 @@
     init: init, resume: resume, ready: ready, songs: songs,
     setMusicVolume: function (v) { musicVol = clamp01(v); setVol('music', musicVol); },
     setSfxVolume: function (v) { sfxVol = clamp01(v); setVol('sfx', sfxVol); },
-    playSong: playSong, stopSong: stopSong, songBeat: songBeat, pulse: pulse, sfx: sfx,
+    playSong: playSong, stopSong: stopSong, songBeat: songBeat, pulse: pulse, latency: latency, sfx: sfx,
     _renderOffline: renderOffline,
     _stats: function () {   // debug / tests only
       return { state: ctx ? ctx.state : 'none', song: cur ? cur.id : null, nextStep: cur ? cur.next : null, live: cur ? cur.live.length : 0,

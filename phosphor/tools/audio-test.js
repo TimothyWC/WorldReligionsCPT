@@ -11,11 +11,12 @@ const { chromium } = require('playwright');
 const SRC = path.join(__dirname, '..', 'src', 'audio.js');
 const MIX = process.argv.includes('--mix');
 const SFX = ['jump', 'land', 'pad', 'ring', 'gate', 'die', 'coin', 'win', 'click', 'checkpoint'];
-const API = ['init', 'resume', 'setMusicVolume', 'setSfxVolume', 'playSong', 'stopSong', 'songBeat', 'pulse', 'sfx', 'ready', '_renderOffline'];
+const API = ['init', 'resume', 'setMusicVolume', 'setSfxVolume', 'playSong', 'stopSong', 'songBeat', 'pulse', 'latency', 'sfx', 'ready', '_renderOffline'];
 const SONGS = {
   trace: { bpm: 128, len: 128, sec: [[0, 16, 'intro'], [16, 48, 'groove'], [48, 64, 'build'], [64, 112, 'main'], [112, 128, 'outro']], loud: ['groove', 'main'], top: 'main' },
   carrier: { bpm: 140, len: 160, sec: [[0, 16, 'intro'], [16, 48, 'groove'], [48, 80, 'air'], [80, 144, 'drop'], [144, 160, 'outro']], loud: ['groove', 'drop'], top: 'drop' },
   overdrive: { bpm: 150, len: 192, sec: [[0, 16, 'intro'], [16, 64, 'A'], [64, 80, 'breakdown'], [80, 144, 'drop'], [144, 176, 'climax'], [176, 192, 'outro']], loud: ['A', 'drop', 'climax'], top: 'drop' },
+  sidebands: { bpm: 136, len: 144, sec: [[0, 16, 'intro'], [16, 48, 'groove'], [48, 64, 'breakdown'], [64, 96, 'main'], [96, 112, 'lift'], [112, 128, 'peak'], [128, 144, 'outro']], loud: ['groove', 'main', 'peak'], top: 'main' },
   menu: { bpm: 100, len: 32, sec: [[0, 32, 'loop']], loud: ['loop'], top: 'loop' }
 };
 const TRACKS = ['k', 's', 'c', 'h', 'o', 'cr', 'sh', 'tm', 'bass', 'arp', 'mel', 'lead', 'pad', 'stab', 'rise'];
@@ -80,12 +81,12 @@ function instrument() {
       PAudio.init(); PAudio.resume(); PAudio.setMusicVolume(0.5); PAudio.setSfxVolume(0.5);
       SFX.forEach((n) => PAudio.sfx(n)); PAudio.sfx('nope');
       PAudio.playSong('trace', 0); PAudio.playSong('nope', 3); PAudio.stopSong(); PAudio.stopSong(0);
-      out.beat = PAudio.songBeat(); out.pulse = PAudio.pulse(); out.ready = PAudio.ready();
+      out.beat = PAudio.songBeat(); out.pulse = PAudio.pulse(); out.ready = PAudio.ready(); out.latency = PAudio.latency();
     } catch (e) { out.threw = String(e); }
     return out;
   }, SFX);
   check(r.threw === null, 'every method is a silent no-op' + (r.threw ? ' (' + r.threw + ')' : ''));
-  check(r.beat === null && r.pulse === 0 && r.ready === false, 'songBeat null, pulse 0, ready false');
+  check(r.beat === null && r.pulse === 0 && r.ready === false && r.latency === 0, 'songBeat null, pulse 0, ready false, latency 0');
   await page.close();
 
   // ------------------------------------------------------------ 2. API surface
@@ -93,11 +94,11 @@ function instrument() {
   page = await newPage(instrument);
   r = await page.evaluate((API) => ({
     missing: API.filter((n) => typeof PAudio[n] !== 'function'), songs: PAudio.songs, made: window.__made,
-    pre: { beat: PAudio.songBeat(), pulse: PAudio.pulse(), ready: PAudio.ready() }
+    pre: { beat: PAudio.songBeat(), pulse: PAudio.pulse(), ready: PAudio.ready(), latency: PAudio.latency() }
   }), API);
   check(r.missing.length === 0, 'all API functions present' + (r.missing.length ? ' (missing ' + r.missing + ')' : ''));
   check(r.made === 0, 'no AudioContext created on load');
-  check(r.pre.beat === null && r.pre.pulse === 0 && r.pre.ready === false, 'before init: songBeat null, pulse 0, ready false');
+  check(r.pre.beat === null && r.pre.pulse === 0 && r.pre.ready === false && r.pre.latency === 0, 'before init: songBeat null, pulse 0, ready false, latency 0');
   for (const id of Object.keys(SONGS)) {
     const s = r.songs[id];
     check(!!s && s.bpm === SONGS[id].bpm && s.lengthBeats === SONGS[id].len && typeof s.name === 'string', `songs.${id} = ${JSON.stringify(s)}`);
@@ -142,15 +143,18 @@ function instrument() {
     check(res.perSecondRms[res.perSecondRms.length - 1] > 0.005, `${id} keeps playing across the loop point`);
     check(max(busy.map((b) => b.osc)) <= 14, `${id} oscillator budget: busiest section averages ${max(busy.map((b) => b.osc)).toFixed(1)} at once`);
   }
-  const levelRms = ['trace', 'carrier', 'overdrive'].map((id) => full[id].rms);
+  const levelRms = ['trace', 'carrier', 'overdrive', 'sidebands'].map((id) => full[id].rms);
   check(full.menu.rms < 0.65 * min(levelRms), `menu rms ${f3(full.menu.rms)} clearly below level songs (${levelRms.map(f3).join(', ')})`);
   check(mean(full.trace.bySec.build) < mean(full.trace.bySec.main), 'trace build quieter than the main section');
   check(mean(full.carrier.bySec.air) < mean(full.carrier.bySec.drop), 'carrier half-time section quieter than the drop');
   check(mean(full.overdrive.bySec.breakdown) < 0.8 * mean(full.overdrive.bySec.drop), 'overdrive breakdown clearly quieter than the drop');
   check(mean(full.overdrive.bySec.climax) >= 0.95 * mean(full.overdrive.bySec.drop), 'overdrive climax at least as loud as the drop');
+  check(mean(full.sidebands.bySec.breakdown) < 0.8 * mean(full.sidebands.bySec.main), 'sidebands breakdown clearly quieter than the main section');
+  check(mean(full.sidebands.bySec.lift) < mean(full.sidebands.bySec.peak), 'sidebands airy lift lighter than the peak');
+  check(mean(full.sidebands.bySec.peak) >= 0.95 * mean(full.sidebands.bySec.main), 'sidebands peak at least as loud as the main section');
 
   console.log('\n  mid-song starts');
-  for (const [id, secs, sb] of [['overdrive', 27, 80], ['trace', 3, 37.5], ['trace', 6, 124], ['carrier', 4, 76.25], ['trace', 3, 54.3], ['trace', 3, -2]]) {
+  for (const [id, secs, sb] of [['overdrive', 27, 80], ['trace', 3, 37.5], ['trace', 6, 124], ['carrier', 4, 76.25], ['trace', 3, 54.3], ['trace', 3, -2], ['sidebands', 4, 110.5], ['sidebands', 5, 140]]) {
     const res = await render(id, secs, sb);
     console.log(`    ${id} from beat ${sb}, ${secs}s (${res.ms}ms): peak ${f3(res.peak)} rms ${f3(res.rms)}  [${res.perSecondRms.map((v) => Math.round(v * 1000)).join(' ')}]`);
     check(res.peak < 0.95 && res.rms > 0.02, `${id}@${sb} renders, peak ${f3(res.peak)}`);
@@ -176,7 +180,7 @@ function instrument() {
 
   if (MIX) {
     console.log('\n  solo-track rms/peak (track alone through the master chain)');
-    for (const [id, sb] of [['trace', 0], ['trace', 16], ['trace', 64], ['carrier', 80], ['carrier', 48], ['overdrive', 16], ['overdrive', 80], ['overdrive', 144], ['menu', 0]]) {
+    for (const [id, sb] of [['trace', 0], ['trace', 16], ['trace', 64], ['carrier', 80], ['carrier', 48], ['overdrive', 16], ['overdrive', 80], ['overdrive', 144], ['sidebands', 0], ['sidebands', 16], ['sidebands', 64], ['sidebands', 96], ['sidebands', 112], ['menu', 0]]) {
       const row = [];
       for (const tk of TRACKS) {
         const res = await render(id, 8, sb, '^(?!' + tk + '$)');
@@ -216,7 +220,7 @@ function instrument() {
   r = await page.evaluate((SFX) => {
     const out = { threw: null };
     try {
-      PAudio.init(); PAudio.init(); out.made = window.__made; out.state = PAudio._stats().state;
+      PAudio.init(); PAudio.init(); out.made = window.__made; out.state = PAudio._stats().state; out.latency = PAudio.latency();
       SFX.forEach((n) => PAudio.sfx(n));
       PAudio.playSong('trace', 0); out.beat0 = PAudio.songBeat();
       PAudio.playSong('trace', 37.5); out.beat1 = PAudio.songBeat();
@@ -227,6 +231,7 @@ function instrument() {
   console.log(`    context state straight after init(): ${r.state}`);
   check(r.threw === null, 'init / every sfx / playSong(trace,0) / playSong(trace,37.5) / stopSong do not throw' + (r.threw ? ' (' + r.threw + ')' : ''));
   check(r.made === 1, 'init() twice creates exactly one context');
+  check(typeof r.latency === 'number' && r.latency >= 0 && r.latency < 1, `latency() is a sane number of seconds (${r.latency})`);
   check(Math.abs(r.beat0 + 0.05 * 128 / 60) < 0.05 && Math.abs(r.beat1 - (37.5 - 0.05 * 128 / 60)) < 0.05,
     `songBeat right after playSong is 50ms short of the start beat: ${f3(r.beat0)} then ${f3(r.beat1)}`);
   check(r.beat2 === null && r.pulse === 0 && r.timer === false, 'after stopSong: songBeat null, pulse 0, timer cleared');

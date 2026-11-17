@@ -100,6 +100,7 @@ h1 {
   min-width: 0; cursor: pointer; position: relative; transition: border-color 0.15s;
 }
 .card.sel { border-color: var(--c, var(--trace)); box-shadow: inset 0 2px 0 var(--c, var(--trace)); }
+.card.daily { border-style: dashed; }
 .card-head { display: flex; justify-content: space-between; font: 12px/1 var(--f-data); letter-spacing: 0.14em; color: var(--dim); }
 .card-head .ch { color: var(--c, var(--trace)); }
 .card h2 { margin: 0; font: 600 22px/1.1 var(--f-ui); letter-spacing: 0.02em; }
@@ -138,13 +139,32 @@ ul.how b { color: var(--trace); font-weight: 600; }
 ul.how .h { color: var(--hot); }
 kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6px; border-radius: 2px; color: var(--ink); }
 
+/* phone portrait: two columns of compact cards, the Daily spans the row */
+@media (max-width: 520px) {
+  .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .card { padding: 10px 12px 12px; gap: 7px; }
+  .card h2 { font-size: 17px; }
+  .card.daily { grid-column: 1 / -1; }
+  .prog.practice, .foot .keys { display: none; }
+  .prog { grid-template-columns: 3.8em 1fr 2.8em; gap: 6px; }
+  .card-head, .card-meta { font-size: 11px; letter-spacing: 0.08em; }
+  .card .rowb { flex-wrap: nowrap; gap: 6px; }
+  .card .rowb button { flex: 1 1 0; min-width: 0; padding: 10px 2px; font-size: 11px; letter-spacing: 0.06em; }
+}
+/* phone landscape: everything on one screen, footer buttons move up beside the title */
 @media (max-height: 520px) and (orientation: landscape) {
   .sub, .prog.practice, .foot .keys { display: none; }
-  h1 { font-size: clamp(22px, 5.4vw, 40px); }
+  h1 { font-size: clamp(22px, 5vw, 38px); }
+  #menu { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px 16px; }
+  .foot { grid-column: 2; grid-row: 1; flex-wrap: nowrap; gap: 6px; }
+  .foot button { padding: 10px; font-size: 11px; letter-spacing: 0.06em; min-height: 38px; }
+  .levels { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
   .card { padding: 10px 12px 12px; gap: 7px; }
-  .card h2 { font-size: 18px; }
-  #menu { gap: 10px; }
-  .levels { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .card h2 { font-size: 17px; }
+  .card-head, .card-meta { font-size: 11px; letter-spacing: 0.06em; }
+  .prog { grid-template-columns: 3.8em 1fr 2.8em; gap: 6px; }
+  .card .rowb { flex-wrap: nowrap; gap: 6px; }
+  .card .rowb button { flex: 1 1 0; min-width: 0; padding: 9px 2px; font-size: 11px; letter-spacing: 0.04em; min-height: 38px; }
   .panel { padding: 14px; gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -1,0 +1,167 @@
+<style>
+/* ---------- level editor ----------
+   #editor fills the #ui cell and lets the pointer through; only its bars and panels take input,
+   so the scope underneath receives the painting. Bars sit inside the #ui gutters. */
+#editor, #editor *, #editor *::before, #editor *::after { box-sizing: border-box; }
+#editor[hidden], #editor [hidden] { display: none !important; }
+#editor { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-height: 0; position: relative; pointer-events: none; }
+#editor .ed-top { position: relative; min-width: 0; }
+#editor .ed-bar { pointer-events: auto; display: flex; align-items: center; gap: 6px; padding: 6px; min-width: 0; background: var(--panel); border: 1px solid var(--line); }
+#editor .ed-r { display: contents; }
+#editor button { padding: 10px 12px; white-space: nowrap; flex: 0 0 auto; }
+#editor button[aria-disabled=true] { opacity: 0.35; cursor: default; pointer-events: none; }
+#editor #edSave::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; vertical-align: 1px; border: 1px solid var(--line); }
+#editor #edSave.ed-unsaved::after { background: var(--acc); border-color: var(--acc); }
+#editor #edMoreBtn { order: 9; }
+#editor #edMoreBtn[aria-expanded=true] { border-color: var(--acc); color: var(--acc); }
+#editor .ed-ic { width: 42px; padding: 0; display: grid; place-items: center; }
+#editor .ed-ic svg { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: square; pointer-events: none; }
+#editor .ed-armed { border-color: var(--hot); color: var(--hot); }
+
+#editor input[type=text], #editor select, #editor textarea {
+  font: 13px/1.2 var(--f-data); letter-spacing: 0.06em; color: var(--ink);
+  background: rgba(0, 0, 0, 0.45); border: 1px solid var(--line); border-radius: 2px;
+  min-height: 42px; min-width: 0; padding: 0 10px; margin: 0; pointer-events: auto;
+  -webkit-user-select: text; user-select: text;
+}
+#editor select { cursor: pointer; padding-right: 4px; }
+#editor textarea { width: 100%; min-height: 112px; padding: 10px; resize: none; line-height: 1.4; letter-spacing: 0; word-break: break-all; }
+#editor input[type=text]:hover, #editor select:hover, #editor textarea:hover { border-color: var(--trace); }
+#editor select:focus-visible, #editor textarea:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+#editor #edName { flex: 1 1 120px; }
+#editor .ed-main .field { display: flex; align-items: center; gap: 6px; font-size: 12px; flex: 0 0 auto; }
+@media (pointer: coarse) { #editor input[type=text], #editor select, #editor textarea { font-size: 16px; letter-spacing: 0; } }
+
+/* bottom: status line, scrubber, tool strip */
+#editor .ed-bottom { flex-direction: column; align-items: stretch; }
+#editor .ed-info { display: flex; align-items: center; gap: 6px 14px; min-width: 0; }
+#editor .ed-status { flex: 1 1 0; min-width: 0; margin: 0; min-height: 2.6em; display: flex; align-items: center; font: 12px/1.3 var(--f-data); letter-spacing: 0.04em; color: var(--ink); text-wrap: pretty; }
+#editor .ed-status.ok { color: var(--trace); }
+#editor .ed-status.warn { color: var(--acc); }
+#editor .ed-status.bad { color: var(--hot); }
+#editor .ed-nav { flex: 0 1 340px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+#editor .ed-pos { font: 11px/1 var(--f-data); letter-spacing: 0.08em; color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; text-transform: uppercase; }
+#editor #edScrub { flex: 1 1 0; min-width: 0; margin: 0; pointer-events: auto; }
+#editor .ed-toolrow { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+#editor .ed-tools { flex: 1 1 0; min-width: 0; display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; touch-action: pan-x; }
+#editor .ed-tool { min-width: 44px; height: 44px; min-height: 44px; padding: 0 5px; display: grid; place-items: center; }
+#editor .ed-tool:focus-visible { outline-offset: -3px; }
+#editor .ed-tool[aria-pressed=true] { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); color: var(--acc); }
+#editor .ed-tool:active { background: rgba(0, 0, 0, 0.35); }
+#editor .ed-tool canvas { width: 28px; height: 28px; display: block; pointer-events: none; }
+#editor .ed-word { padding: 0 9px; font-size: 11px; letter-spacing: 0.1em; }
+#editor .ed-gate { font: 600 11px/1 var(--f-data); letter-spacing: 0.02em; text-transform: none; white-space: nowrap; color: var(--g, var(--acc)); border: 1px solid var(--g, var(--acc)); padding: 5px 4px 4px; pointer-events: none; }
+#editor .ed-sep { flex: 0 0 1px; align-self: stretch; margin: 6px 2px; background: var(--line); }
+#editor #edView { height: 44px; min-height: 44px; }
+
+/* panels: More drops from the top bar, the others sit in the middle */
+#editor .ed-shade { position: fixed; inset: 0; z-index: 2; background: rgba(2, 8, 6, 0.6); pointer-events: auto; }
+#editor .ed-more { position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; width: min(100%, 430px); padding: 14px; gap: 12px; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; }
+#editor .ed-fields { display: flex; flex-direction: column; gap: 8px; }
+#editor .ed-more .field { grid-template-columns: 5.5em 1fr; }
+#editor .ed-more .rowb { gap: 8px; }
+#editor .ed-more .rowb > button, #editor .ed-panel .rowb > button { flex: 1 1 130px; }
+#editor .ed-note { margin: 0; font: 12px/1.5 var(--f-data); letter-spacing: 0.04em; color: var(--dim); }
+#editor .ed-layer { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; pointer-events: none; }
+#editor .panel:focus { outline: none; }
+#editor .ed-panel { width: min(100%, 520px); max-height: 100%; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; }
+#editor .ed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#editor .ed-item { border: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#editor .ed-item b { display: block; font: 600 17px/1.2 var(--f-ui); color: var(--ink); overflow-wrap: anywhere; }
+#editor .ed-item span { font: 12px/1.4 var(--f-data); letter-spacing: 0.06em; color: var(--dim); text-transform: uppercase; }
+#editor .ed-item .rowb > button { flex: 1 1 86px; padding-inline: 8px; }
+#editor .ed-err { margin: 0; min-height: 1.4em; font: 13px/1.4 var(--f-data); color: var(--hot); }
+#editor .ed-err:empty { display: none; }
+
+@media (max-width: 620px) {
+  #editor .ed-main { flex-direction: column; align-items: stretch; }
+  #editor .ed-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  #editor .ed-r2 > button:not(.ed-ic) { flex: 1 1 auto; }
+  #editor .ed-info { flex-direction: column; align-items: stretch; }
+  #editor .ed-status { flex: 0 0 auto; min-height: 3.9em; }
+  #editor .ed-nav { flex: 0 0 auto; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  #editor { gap: 4px; }
+  #editor .ed-bar { padding: 4px; }
+  #editor .ed-bottom { gap: 4px; }
+  #editor .ed-more { width: min(100%, 640px); padding: 12px; gap: 10px; }
+  #editor .ed-fields { flex-direction: row; gap: 12px; }
+  #editor .ed-fields > .field { flex: 1 1 0; }
+  #editor textarea { min-height: 76px; }
+}
+@media (hover: none) { #editor .ed-keys { display: none; } }
+</style>
+
+<section id="editor" hidden aria-label="Level editor">
+  <div class="ed-top">
+    <div class="ed-bar ed-main" id="edBar">
+      <div class="ed-r ed-r1" id="edRow1">
+        <button type="button" id="edExit">Exit</button>
+        <input type="text" id="edName" maxlength="32" autocomplete="off" spellcheck="false" aria-label="Level name" placeholder="Level name">
+        <button type="button" id="edMoreBtn" aria-expanded="false" aria-controls="edMore">More</button>
+      </div>
+      <div class="ed-r ed-r2" id="edRow2">
+        <button type="button" id="edUndo" class="ed-ic" aria-label="Undo" title="Undo"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8h8a4 4 0 0 1 0 8H8"/><path d="M7.5 4.5 4 8l3.5 3.5"/></svg></button>
+        <button type="button" id="edRedo" class="ed-ic" aria-label="Redo" title="Redo"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8H8a4 4 0 0 0 0 8h4"/><path d="M12.5 4.5 16 8l-3.5 3.5"/></svg></button>
+        <button type="button" id="edTest" class="primary" title="Play from the start">Test</button>
+        <button type="button" id="edVerify" title="Let the bot check the level can be beaten">Verify</button>
+        <button type="button" id="edSave">Save</button>
+      </div>
+    </div>
+    <div class="panel ed-more" id="edMore" hidden>
+      <div class="ed-fields" id="edMoreFields">
+        <label class="field" for="edSong" id="edSongField">Song <select id="edSong"></select></label>
+        <label class="field" for="edPal" id="edPalField">Colour <select id="edPal"></select></label>
+      </div>
+      <div class="rowb" id="edMoreActs">
+        <button type="button" id="edPractice" title="Test with checkpoints">Practice</button>
+        <button type="button" id="edLevels">Levels</button>
+        <button type="button" id="edCopy">Copy code</button>
+        <button type="button" id="edPaste">Paste code</button>
+        <button type="button" id="edGrow">+32 columns</button>
+        <button type="button" id="edTrim">Trim empty tail</button>
+        <button type="button" id="edClear" class="danger">Clear tiles</button>
+      </div>
+      <p class="ed-note" id="edLen"></p>
+      <p class="ed-note ed-keys"><kbd>Arrows</kbd> move the view. <kbd>Shift</kbd> + wheel moves it up and down. <kbd>Ctrl</kbd> <kbd>Z</kbd> undo, <kbd>Ctrl</kbd> <kbd>Y</kbd> redo, <kbd>E</kbd> erase. Right-click erases with any tool.</p>
+    </div>
+  </div>
+
+  <div class="ed-bar ed-bottom" id="edBottom">
+    <div class="ed-info">
+      <p class="ed-status" id="edStatus" role="status" aria-live="polite"></p>
+      <div class="ed-nav">
+        <span class="ed-pos" id="edPos"></span>
+        <input type="range" id="edScrub" min="0" max="1" step="1" value="0" aria-label="Scroll along the level">
+      </div>
+    </div>
+    <div class="ed-toolrow">
+      <div class="ed-tools" id="edTools" role="toolbar" aria-label="Tiles and tools"></div>
+      <button type="button" id="edView" class="ed-ic" aria-label="Show the upper rows" title="Show the upper or lower rows" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5-5 5 5"/><path d="M5 12l5 5 5-5"/></svg></button>
+    </div>
+  </div>
+
+  <div class="ed-shade" id="edShade" hidden></div>
+  <div class="ed-layer">
+    <div class="panel ed-panel" id="edLevelsPanel" role="dialog" aria-labelledby="edLevelsTitle" hidden>
+      <h2 id="edLevelsTitle">Your levels</h2>
+      <p id="edLevelsInfo"></p>
+      <ul class="ed-list" id="edList"></ul>
+      <div class="rowb">
+        <button type="button" id="edNew">New level</button>
+        <button type="button" id="edLevelsClose">Close</button>
+      </div>
+    </div>
+    <div class="panel ed-panel" id="edCodePanel" role="dialog" aria-labelledby="edCodeTitle" hidden>
+      <h2 id="edCodeTitle">Level code</h2>
+      <p id="edCodeInfo"></p>
+      <textarea id="edCodeText" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-labelledby="edCodeTitle"></textarea>
+      <p class="ed-err" id="edCodeMsg" role="alert"></p>
+      <div class="rowb">
+        <button type="button" id="edImport">Import</button>
+        <button type="button" id="edCodeClose">Close</button>
+      </div>
+    </div>
+  </div>
+</section>

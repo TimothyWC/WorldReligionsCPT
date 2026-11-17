@@ -427,9 +427,9 @@
       '....##..............##..........' ] },
     // 72-80 stepped tunnel
     [ '########################........',
-      '########################........',
       '........########................',
       '........########................',
+      '................................',
       '................................',
       '########........########........',
       '########........########........',
@@ -493,7 +493,27 @@
     { id: 'overdrive', name: 'Overdrive', song: 'overdrive', bpm: 150, diff: 'Hard', color: 5, chunks: overdrive }
   ];
 
-  var api = { levels: levels };
+  /* Chunk pool for generated levels (the Daily). Every entry starts and ends as a hopper on the ground
+     at normal speed. `sets` are multi-chunk pieces that must stay together. */
+  var reset = [ '2...............' ];
+  var pool = {
+    hop: [trace[0], trace[1], trace[2], trace[3], trace[4], trace[5], trace[6], trace[7], trace[9], trace[10],
+          trace[11], trace[12], trace[13], trace[14], carrier[0], carrier[3], carrier[4],
+          overdrive[0], overdrive[1], overdrive[4], overdrive[5],
+          sidebands[0], sidebands[1], sidebands[2], sidebands[3], sidebands[4], sidebands[5]],
+    sets: [
+      [carrier[1], carrier[2]],
+      [carrier[6], carrier[7], carrier[8], carrier[9]],
+      [carrier[10], carrier[11], carrier[12], carrier[13]],
+      [overdrive[2], overdrive[3]],
+      [overdrive[6], overdrive[7], reset],
+      [overdrive[18], overdrive[19], reset],
+      [sidebands[6], sidebands[7], sidebands[8], sidebands[9]],
+      [sidebands[12], sidebands[13]]
+    ]
+  };
+
+  var api = { levels: levels, pool: pool };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PLevels = api;
 })(typeof window !== 'undefined' ? window : this);
