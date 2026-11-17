@@ -74,4 +74,84 @@ test('every built-in level has a stored bot run that still wins with all cores',
   });
 });
 
+/* ---- fairness: things that must never kill the player ---- */
+function run(L, holdFn, untilX) {
+  const s = E.newState();
+  while (!s.dead && !s.done && s.x < untilX) E.step(L, s, !!holdFn(s));
+  return s;
+}
+
+test('block seams never kill: floor run, raised run, slabs, at every speed', () => {
+  for (const gate of ['.', '1', '3', '4']) {
+    // jump onto a 40-block shelf and run its whole length
+    let L = flat(['..' + gate + '.....' + '#'.repeat(40) + '.'.repeat(12)]);
+    let s = run(L, st => st.x > 5.2 && st.x < 5.6, 47);
+    assert.ok(!s.dead && Math.abs(s.y - 1.5) < 0.01, 'shelf run at gate ' + gate + ' (dead=' + s.dead + ' x=' + s.x.toFixed(2) + ' y=' + s.y.toFixed(2) + ')');
+    s = run(L, st => st.x > 5.2 && st.x < 5.6, 58);
+    assert.ok(!s.dead && s.grounded, 'walking off the shelf lands safely at gate ' + gate);
+    for (const slab of ['=', '-']) {
+      L = flat(['..' + gate + '.....' + slab.repeat(40) + '.'.repeat(12)]);
+      s = run(L, st => st.x > 5.2 && st.x < 5.6, 47);
+      assert.ok(!s.dead, 'slab ' + slab + ' run at gate ' + gate + ' died at x=' + s.x.toFixed(2));
+    }
+  }
+});
+
+test('every reasonable take-off lands on a shelf, none of them clip its corner', () => {
+  const L = flat(['..........' + '#'.repeat(20) + '..........']);
+  let good = 0, first = null, last = null;
+  for (let t = 0; t < 400; t++) {
+    const s = E.newState();
+    while (!s.dead && s.x < 20) E.step(L, s, s.t === t);
+    if (!s.dead) { good++; if (first === null) first = t / C.SPB * 4; last = t / C.SPB * 4; }
+  }
+  // analytic window is about x in (6.0, 9.35): 3.3 blocks = 0.8 beat
+  assert.ok(first < 6.3 && last > 9.2, 'landing window should span about x=6.0..9.35, got ' + first.toFixed(2) + '..' + last.toFixed(2));
+  assert.ok(good >= 76, 'window too small: ' + good + ' steps');
+});
+
+test('ceiling running, ceiling seams and coming back down are safe', () => {
+  const rows = ['....' + '#'.repeat(40) + '....', '.'.repeat(48), '.'.repeat(48), '.'.repeat(48), '......U..............................D..........'];
+  const L = flat(rows);
+  let s = run(L, () => false, 36);
+  assert.ok(!s.dead && s.grav === -1 && Math.abs(s.y - 3.5) < 0.01, 'on the ceiling');
+  s = run(L, () => false, 47);
+  assert.ok(!s.dead && s.grounded && s.grav === 1 && s.y < 0.6, 'back on the ground');
+  // jumping while upside down must come back to the ceiling, not through it
+  s = run(L, st => st.x > 20 && st.x < 20.2, 30);
+  assert.ok(!s.dead && Math.abs(s.y - 3.5) < 0.01, 'upside-down jump returns to the ceiling');
+});
+
+test('flying: sliding along floors, ceilings and their seams is safe', () => {
+  const mk = (top, bottom) => flat([top, '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), 'G' + '.'.repeat(59), bottom]);
+  let L = mk('.'.repeat(60), '.'.repeat(10) + '-'.repeat(40) + '.'.repeat(10));   // never press: skim the corridor floor, then low slabs
+  let s = run(L, () => false, 9);
+  assert.ok(!s.dead, 'sinking to the corridor floor');
+  L = mk('.'.repeat(10) + '#'.repeat(40) + '.'.repeat(10), '.'.repeat(60));          // always press: ride the ceiling blocks
+  s = run(L, st => st.x < 5 || st.y > 7.4 || st.x > 9.5, 58);
+  assert.ok(!s.dead, 'riding along a block ceiling died at x=' + s.x.toFixed(2) + ' y=' + s.y.toFixed(2));
+  L = mk('.'.repeat(60), '.'.repeat(60));
+  s = run(L, () => true, 58);
+  assert.ok(!s.dead && s.y > 8, 'holding forever just rides the corridor ceiling');
+});
+
+test('zigzag slides on the corridor bounds and dies on blocks', () => {
+  const open = flat(['.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), 'Z' + '.'.repeat(59), '.'.repeat(60)]);
+  assert.ok(!run(open, () => false, 58).dead, 'floor slide');
+  assert.ok(!run(open, () => true, 58).dead, 'ceiling slide');
+  const wall = flat(['.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), '.'.repeat(60), 'Z' + '.'.repeat(59), '.'.repeat(20) + '#' + '.'.repeat(39)]);
+  assert.ok(run(wall, () => false, 58).dead, 'a block in the way is fatal');
+});
+
+test('pads and rings from a shelf, a wall of exactly head height, and a one-block tunnel', () => {
+  // tunnel: one block of headroom, do not jump, must pass
+  let L = flat(['.....' + '#'.repeat(20) + '.....', '.'.repeat(30)]);
+  assert.ok(!run(L, () => false, 29).dead, 'running through a one-block tunnel');
+  assert.ok(run(L, st => st.x > 10 && st.x < 10.3, 29).dead, 'jumping inside the tunnel bonks');
+  // pad on a shelf
+  L = flat(['......_' + '.'.repeat(23), '....#####' + '.'.repeat(21)]);
+  const s = run(L, st => st.x > 1.2 && st.x < 1.5, 9);
+  assert.ok(!s.dead && s.y > 3.5, 'pad on a shelf launches (y=' + s.y.toFixed(2) + ')');
+});
+
 console.log(n + ' tests passed');
