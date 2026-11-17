@@ -1,0 +1,236 @@
+<title>Phosphor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600&family=Share+Tech+Mono&family=Syncopate:wght@700&display=swap">
+<style>
+/* Layout: the scope (canvas) fills the screen; menus are instrument panels floating over the live trace. */
+:root {
+  color-scheme: dark;
+  --glass: #04110c;                 /* CRT glass, the page ground */
+  --ink: #ddfbea;                   /* phosphor white for text */
+  --dim: #86a898;                   /* secondary text */
+  --trace: #5dffa0;                 /* the beam; follows the selected level */
+  --hot: #ff5c50;                   /* hazards and destructive actions */
+  --acc: #ffe86e;                   /* pads, rings, focus */
+  --panel: rgba(3, 12, 9, 0.82);
+  --line: rgba(93, 255, 160, 0.3);
+  --f-display: "Syncopate", "Chakra Petch", "Arial Black", sans-serif;
+  --f-ui: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --f-data: "Share Tech Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :root { --line: color-mix(in srgb, var(--trace) 32%, transparent); }
+}
+html, body { height: 100%; }
+body {
+  background: var(--glass); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.4;
+  overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+}
+#scope { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+#crt {
+  position: fixed; inset: 0; pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.2) 2px 3px),
+    radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(0,0,0,0.6) 100%);
+}
+#ui {
+  position: fixed; inset: 0; display: grid; pointer-events: none;
+  padding-block: max(10px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  transition: background-color 0.25s;
+}
+#ui.scrim { background: rgba(2, 8, 6, 0.6); }
+#ui > * { grid-area: 1 / 1; min-width: 0; }
+
+button {
+  font: 600 13px/1 var(--f-data); letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink); background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 2px;
+  padding: 12px 16px; min-height: 42px; cursor: pointer; pointer-events: auto;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+button:hover { border-color: var(--trace); color: var(--trace); }
+button:active { background: var(--trace); color: var(--glass); }
+button.primary { background: var(--trace); color: var(--glass); border-color: var(--trace); }
+button.primary:hover { color: var(--glass); filter: brightness(1.15); }
+button.danger:hover { border-color: var(--hot); color: var(--hot); }
+button:focus-visible, input:focus-visible, .card:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* ---------- HUD ---------- */
+#hud { display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.hud-top { display: flex; align-items: center; gap: 12px; }
+.tag { font: 13px/1 var(--f-data); letter-spacing: 0.1em; color: var(--trace); min-width: 4.2em; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px var(--line); }
+#hudPct { text-align: right; }
+.meter { flex: 1; height: 5px; border: 1px solid var(--line); background: rgba(0,0,0,0.4); position: relative; max-width: 560px; margin-inline: auto; }
+.meter i { position: absolute; inset: 0; background: var(--trace); transform-origin: left center; transform: scaleX(0); box-shadow: 0 0 10px var(--trace); }
+.meter b { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--acc); opacity: 0.8; }
+#btnPause { padding: 0; width: 42px; min-height: 42px; font-size: 12px; letter-spacing: 0; }
+#hudMsg {
+  align-self: center; text-align: center; font: 700 clamp(16px, 4.5vw, 30px)/1.2 var(--f-display); letter-spacing: 0.16em;
+  color: var(--trace); text-shadow: 0 0 18px var(--line); opacity: 0; transition: opacity 0.4s; margin-top: 8vh; text-wrap: balance;
+}
+#hudMsg small { display: block; font: 13px/1.6 var(--f-data); letter-spacing: 0.14em; color: var(--ink); }
+#hudMsg.on { opacity: 1; }
+.hud-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+#toast { font: 13px/1 var(--f-data); letter-spacing: 0.12em; color: var(--acc); opacity: 0; transition: opacity 0.3s; text-shadow: 0 0 10px rgba(0,0,0,0.9); text-align: center; flex: 1; padding-bottom: 12px; }
+#toast.on { opacity: 1; }
+.cp { display: flex; gap: 8px; }
+.cp button { background: rgba(0,0,0,0.55); }
+
+/* ---------- screens ---------- */
+.screen { place-self: center; width: min(100%, 1000px); max-height: 100%; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; }
+.panel { width: min(100%, 460px); background: var(--panel); border: 1px solid var(--line); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+.panel h2 { font: 700 clamp(18px, 5vw, 26px)/1.15 var(--f-display); letter-spacing: 0.14em; color: var(--trace); margin: 0; text-wrap: balance; }
+.panel p { margin: 0; color: var(--dim); }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.rowb { display: flex; flex-wrap: wrap; gap: 10px; }
+.rowb > button { flex: 1 1 130px; }
+
+#menu { display: flex; flex-direction: column; gap: clamp(12px, 3vh, 28px); padding-block: 8px; }
+.brand { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 24px; }
+h1 {
+  margin: 0; font: 700 clamp(30px, 8.6vw, 76px)/0.95 var(--f-display); letter-spacing: 0.14em; color: var(--trace);
+  text-shadow: 0 0 22px var(--line), 0 0 2px var(--trace);
+}
+.sub { margin: 0; font: 13px/1.5 var(--f-data); letter-spacing: 0.06em; color: var(--dim); max-width: 46ch; }
+.levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px;
+  min-width: 0; cursor: pointer; position: relative; transition: border-color 0.15s;
+}
+.card.sel { border-color: var(--c, var(--trace)); box-shadow: inset 0 2px 0 var(--c, var(--trace)); }
+.card-head { display: flex; justify-content: space-between; font: 12px/1 var(--f-data); letter-spacing: 0.14em; color: var(--dim); }
+.card-head .ch { color: var(--c, var(--trace)); }
+.card h2 { margin: 0; font: 600 22px/1.1 var(--f-ui); letter-spacing: 0.02em; }
+.card-meta { display: flex; justify-content: space-between; align-items: center; font: 12px/1 var(--f-data); letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; }
+.cores { letter-spacing: 0.2em; color: var(--ink); }
+.cores .off { opacity: 0.25; }
+.prog { display: grid; grid-template-columns: 5.2em 1fr 3.2em; align-items: center; gap: 8px; font: 12px/1 var(--f-data); color: var(--dim); letter-spacing: 0.06em; }
+.prog .meter { height: 4px; margin: 0; max-width: none; }
+.prog .meter i { background: var(--c, var(--trace)); box-shadow: none; }
+.prog b { font-weight: 400; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.card .rowb button { flex: 1 1 90px; padding-inline: 8px; }
+.card button.primary { background: var(--c, var(--trace)); border-color: var(--c, var(--trace)); }
+.foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.foot .keys { font: 12px/1.5 var(--f-data); color: var(--dim); letter-spacing: 0.06em; margin-left: auto; }
+
+.field { display: grid; grid-template-columns: 7em 1fr; align-items: center; gap: 12px; font: 13px/1 var(--f-data); letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
+input[type=range] { width: 100%; accent-color: var(--trace); min-height: 28px; }
+.check { display: flex; align-items: center; gap: 10px; font: 13px/1.3 var(--f-data); letter-spacing: 0.06em; color: var(--ink); cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--trace); }
+.picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.picks button { padding: 0; width: 46px; height: 46px; min-height: 0; display: grid; place-items: center; }
+.picks button[aria-pressed=true] { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
+.picks canvas { width: 34px; height: 34px; pointer-events: none; }
+.picks i { width: 22px; height: 22px; border-radius: 50%; display: block; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stats div { border: 1px solid var(--line); padding: 10px 8px; text-align: center; min-width: 0; }
+.stats b { display: block; font: 600 22px/1.1 var(--f-ui); color: var(--ink); font-variant-numeric: tabular-nums; }
+.stats span { font: 11px/1 var(--f-data); letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; }
+ul.how { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--ink); }
+ul.how b { color: var(--trace); font-weight: 600; }
+ul.how .h { color: var(--hot); }
+kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6px; border-radius: 2px; color: var(--ink); }
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .sub, .prog.practice, .foot .keys { display: none; }
+  h1 { font-size: clamp(22px, 5.4vw, 40px); }
+  .card { padding: 10px 12px 12px; gap: 7px; }
+  .card h2 { font-size: 18px; }
+  #menu { gap: 10px; }
+  .levels { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .panel { padding: 14px; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<canvas id="scope" tabindex="-1" aria-label="Phosphor game view"></canvas>
+<div id="crt" aria-hidden="true"></div>
+
+<div id="ui" class="scrim">
+  <div id="hud" hidden>
+    <div class="hud-top">
+      <span class="tag" id="hudAtt">ATT 1</span>
+      <div class="meter" role="progressbar" aria-label="Level progress" aria-valuemin="0" aria-valuemax="100" id="hudMeter"><i id="hudBar"></i><b id="hudBest" hidden></b></div>
+      <span class="tag" id="hudPct">0%</span>
+      <button id="btnPause" aria-label="Pause">II</button>
+    </div>
+    <div id="hudMsg" aria-live="polite"></div>
+    <div class="hud-bottom">
+      <div class="cp" id="cpBar" hidden>
+        <button id="btnCp" aria-label="Place checkpoint">+ Checkpoint</button>
+        <button id="btnCpDel" aria-label="Remove last checkpoint">Undo</button>
+      </div>
+      <div id="toast" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <main id="menu" class="screen">
+    <div class="brand">
+      <h1>PHOSPHOR</h1>
+      <p class="sub">One-button rhythm runner. Tap, click or press Space to jump. Hold to keep jumping. Every level is locked to its own track.</p>
+    </div>
+    <div class="levels" id="levels"></div>
+    <div class="foot">
+      <button id="btnSettings">Settings</button>
+      <button id="btnHow">How to play</button>
+      <span class="keys">The beam behind this menu is a bot clearing the selected level.</span>
+    </div>
+  </main>
+
+  <section id="pause" class="screen panel" hidden aria-labelledby="pauseTitle">
+    <h2 id="pauseTitle">Paused</h2>
+    <p id="pauseInfo"></p>
+    <div class="stack">
+      <button class="primary" id="btnResume">Resume</button>
+      <button id="btnRestart">Restart level</button>
+      <button id="btnToggleMode">Switch to practice</button>
+      <button id="btnPauseSettings">Settings</button>
+      <button id="btnQuit">Back to levels</button>
+    </div>
+  </section>
+
+  <section id="complete" class="screen panel" hidden aria-labelledby="doneTitle">
+    <h2 id="doneTitle">Signal locked</h2>
+    <p id="doneInfo"></p>
+    <div class="stats">
+      <div><b id="stAtt">0</b><span>Attempts</span></div>
+      <div><b id="stJumps">0</b><span>Jumps</span></div>
+      <div><b id="stCores">0/3</b><span>Cores</span></div>
+    </div>
+    <div class="stack">
+      <button class="primary" id="btnNext">Next level</button>
+      <button id="btnAgain">Play again</button>
+      <button id="btnDoneMenu">Back to levels</button>
+    </div>
+  </section>
+
+  <section id="settings" class="screen panel" hidden aria-labelledby="setTitle">
+    <h2 id="setTitle">Settings</h2>
+    <label class="field" for="volMusic">Music <input type="range" id="volMusic" min="0" max="100" step="1"></label>
+    <label class="field" for="volSfx">Effects <input type="range" id="volSfx" min="0" max="100" step="1"></label>
+    <label class="check" for="optCalm"><input type="checkbox" id="optCalm"> Calm mode: no screen shake, softer flashes</label>
+    <label class="check" for="optAuto"><input type="checkbox" id="optAuto"> Practice: place checkpoints automatically</label>
+    <div class="stack"><span class="field" style="grid-template-columns:1fr">Your glyph</span><div class="picks" id="skins"></div></div>
+    <div class="stack"><span class="field" style="grid-template-columns:1fr">Beam colour</span><div class="picks" id="tints"></div></div>
+    <div class="rowb">
+      <button class="primary" id="btnSetClose">Done</button>
+      <button class="danger" id="btnReset">Erase progress</button>
+    </div>
+  </section>
+
+  <section id="how" class="screen panel" hidden aria-labelledby="howTitle">
+    <h2 id="howTitle">How to play</h2>
+    <ul class="how">
+      <li><b>Jump:</b> tap, click, or press <kbd>Space</kbd>. Hold to keep jumping. One jump lasts exactly one beat.</li>
+      <li><b>Pads</b> launch you on contact. <b>Rings</b> give a second jump if you tap while touching them.</li>
+      <li><b>Gates</b> change how you move. <b>FLY</b>: hold to climb, release to sink. <b>ZIG</b>: hold to rise, release to dive. <b>G UP</b> flips gravity. Number gates change speed.</li>
+      <li>Anything in the <span class="h">hot colour</span> ends the run. So does hitting a wall.</li>
+      <li><b>Practice</b> drops checkpoints so you can learn a level one section at a time.</li>
+      <li><b>Cores</b> are three optional pickups per level, usually off the safe path.</li>
+      <li>Keys: <kbd>P</kbd> pause, <kbd>R</kbd> restart, <kbd>Z</kbd> / <kbd>X</kbd> add or remove a checkpoint.</li>
+    </ul>
+    <button class="primary" id="btnHowClose">Got it</button>
+  </section>
+</div>
+<!--SCRIPTS-->
