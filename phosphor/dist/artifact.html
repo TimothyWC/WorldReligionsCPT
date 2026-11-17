@@ -201,6 +201,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       <button id="btnSettings">Settings</button>
       <button id="btnHow">How to play</button>
       <button id="btnEditor" hidden>Level editor</button>
+      <button id="btnFull" hidden>Fullscreen</button>
       <span class="keys">The beam behind this menu is a bot clearing the selected level.</span>
     </div>
   </main>
@@ -328,7 +329,11 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
 #editor .ed-layer { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; pointer-events: none; }
 #editor .panel:focus { outline: none; }
 #editor .ed-panel { width: min(100%, 520px); max-height: 100%; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; }
-#editor .ed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#editor .ed-panel > * { flex: 0 0 auto; }
+#editor #edLevelsPanel { overflow: hidden; }
+#editor .ed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+#editor .ed-list:empty { display: none; }
+#editor .ed-item { flex: 0 0 auto; }
 #editor .ed-item { border: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 #editor .ed-item b { display: block; font: 600 17px/1.2 var(--f-ui); color: var(--ink); overflow-wrap: anywhere; }
 #editor .ed-item span { font: 12px/1.4 var(--f-data); letter-spacing: 0.06em; color: var(--dim); text-transform: uppercase; }
@@ -338,7 +343,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
 
 @media (max-width: 620px) {
   #editor .ed-main { flex-direction: column; align-items: stretch; }
-  #editor .ed-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  #editor .ed-r { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
   #editor .ed-r2 > button:not(.ed-ic) { flex: 1 1 auto; }
   #editor .ed-info { flex-direction: column; align-items: stretch; }
   #editor .ed-status { flex: 0 0 auto; min-height: 3.9em; }
@@ -407,7 +412,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
 
   <div class="ed-shade" id="edShade" hidden></div>
   <div class="ed-layer">
-    <div class="panel ed-panel" id="edLevelsPanel" role="dialog" aria-labelledby="edLevelsTitle" hidden>
+    <div class="panel ed-panel" id="edLevelsPanel" role="dialog" aria-modal="true" aria-labelledby="edLevelsTitle" hidden>
       <h2 id="edLevelsTitle">Your levels</h2>
       <p id="edLevelsInfo"></p>
       <ul class="ed-list" id="edList"></ul>
@@ -416,7 +421,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
         <button type="button" id="edLevelsClose">Close</button>
       </div>
     </div>
-    <div class="panel ed-panel" id="edCodePanel" role="dialog" aria-labelledby="edCodeTitle" hidden>
+    <div class="panel ed-panel" id="edCodePanel" role="dialog" aria-modal="true" aria-labelledby="edCodeTitle" hidden>
       <h2 id="edCodeTitle">Level code</h2>
       <p id="edCodeInfo"></p>
       <textarea id="edCodeText" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-labelledby="edCodeTitle"></textarea>
@@ -2242,6 +2247,12 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     var X = sx(sc.x), Y = sy(sc.y);
     ctx.save();
     ctx.translate(X, Y);
+    if (sc.squash) {
+      // squash on landing, stretch on take-off, anchored at the feet
+      var q = sc.squash, g = sc.s.grav;
+      ctx.translate(0, g * B * 0.5 * q);
+      ctx.scale(1 + q * 0.7, 1 - q);
+    }
     ctx.rotate(sc.rot);
     if (sc.s.grav < 0 && sc.s.mode !== C.HOP) ctx.scale(1, -1);
     drawPlayerShape(ctx, sc.s.mode, B, sc.skin || 0, TINTS[sc.tint || 0], Math.max(1.5, B * 0.055));
@@ -2336,6 +2347,8 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       if (j && typeof j === 'object') { for (var k in save) if (j[k] !== undefined && typeof j[k] === typeof save[k]) save[k] = j[k]; }
     } catch (e) { /* storage blocked: play without saving */ }
     if (root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches) save.calm = true;
+    var keep = 'daily-' + today();
+    for (var id in save.lv) if (id.indexOf('daily-') === 0 && id !== keep) delete save.lv[id];
   }
   function persist() { try { root.localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } }
   function rec(id) { return save.lv[id] || (save.lv[id] = { n: 0, p: 0, cores: 0, att: 0, done: 0 }); }
@@ -2345,7 +2358,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     mode: 'menu', sel: 0, L: LV[0], s: E.newState(), px: 0, py: 0.5, target: 0, alpha: 0,
     practice: false, attempts: 0, jumps: 0, coins: 0, used: {}, cps: [], lastCp: 0,
     trail: [], parts: [], rot: 0, shake: 0, flash: 0, flashCol: 0, deadT: 0, doneT: 0, shown: false,
-    wait: 0, ti: 0, dh: false, custom: null, secI: 0, snap: true, dust: 0, hints: {}, exit: 0, bestAtStart: 0, screen: 'menu', back: 'menu'
+    wait: 0, ti: 0, dh: false, custom: null, squash: 0, secI: 0, snap: true, dust: 0, hints: {}, exit: 0, bestAtStart: 0, screen: 'menu', back: 'menu'
   };
   var input = { hold: false, latch: false, block: false, ptrs: {}, nptr: 0, key: false };
   var EV = [];
@@ -2652,10 +2665,12 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       e = EV[i];
       switch (e.type) {
         case 'jump':
+          G.squash = -0.2;
           if (play) { G.jumps++; au('sfx', 'jump'); }
           spark(s.x - 0.2, fy, 5, 0, 4, { dir: s.grav > 0 ? 3.6 : 2.7, spread: 1.2, life: 0.3 });
           break;
         case 'land':
+          G.squash = 0.26;
           if (play) au('sfx', 'land');
           spark(s.x, fy, 4, 0, 3.5, { dir: 3.14, spread: 2.4, life: 0.25, size: 0.1 });
           break;
@@ -2743,6 +2758,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       if (p.life <= 0) { G.parts.splice(i, 1); continue; }
       p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= p.g * dt;
     }
+    if (G.squash) { G.squash *= Math.exp(-dt * 16); if (Math.abs(G.squash) < 0.004) G.squash = 0; }
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 3.2);
     if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 1.6);
     if (G.mode === 'done') {
@@ -2765,7 +2781,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     else sc.camX = undefined;
     var pu = G.mode === 'play' ? au('pulse') : null;
     sc.pulse = typeof pu === 'number' ? pu : Math.exp(-(((G.target % 1) + 1) % 1) * 5) * (G.mode === 'menu' ? 0.6 : 1);
-    sc.rot = G.rot; sc.used = G.used; sc.coins = G.coins; sc.owned = rec(L.id).cores;
+    sc.rot = G.rot; sc.squash = s.mode === C.HOP ? (G.squash || 0) : 0; sc.used = G.used; sc.coins = G.coins; sc.owned = rec(L.id).cores;
     sc.cps = G.practice ? G.cps : null;
     sc.shake = G.shake; sc.flash = G.flash; sc.flashCol = G.flashCol;
     sc.skin = save.skin; sc.tint = save.tint;
@@ -2816,6 +2832,8 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     ui.toast.textContent = t; ui.toast.classList.add('on');
     clearTimeout(toastT); toastT = setTimeout(function () { ui.toast.classList.remove('on'); }, 1800);
   }
+
+  function toastMenu(t) { var k = ui.root.querySelector('.foot .keys'); if (k) k.textContent = t; }
 
   function css(a) { return 'rgb(' + a[0] + ',' + a[1] + ',' + a[2] + ')'; }
   function setTrace(L) {
@@ -2973,6 +2991,18 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     ui.next.addEventListener('click', function () { if (settled()) startLevel(Math.min(LV.length - 1, G.sel + 1), false); });
     ui.again.addEventListener('click', function () { if (settled()) startL(G.L, G.practice); });
     ui.doneMenu.addEventListener('click', toMenu);
+    // fullscreen is optional: phones and some embedded views do not offer it
+    var full = $('btnFull'), de = document.documentElement;
+    if (document.fullscreenEnabled && de.requestFullscreen && !(root.matchMedia && root.matchMedia('(pointer: coarse)').matches)) {
+      full.hidden = false;
+      full.addEventListener('click', function () {
+        try {
+          var p = document.fullscreenElement ? document.exitFullscreen() : de.requestFullscreen();
+          if (p && p.catch) p.catch(function () { toastMenu('Fullscreen is not available here'); });
+        } catch (e) { /* refused */ }
+      });
+      document.addEventListener('fullscreenchange', function () { full.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'; R.resize(); });
+    }
     $('btnCp').addEventListener('click', function () { addCp(false); });
     $('btnCpDel').addEventListener('click', delCp);
 
@@ -3061,8 +3091,8 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   var PAL_NAMES = ['Green', 'Amber', 'Ice', 'Violet', 'White-hot', 'Red alert'];
   var TILES = '.#=-^v,`<>*xo_~cHGZUD1234', HAZ = '^v,`<>*x', GATES = 'HGZUD1234';
   var GATE_COL = { U: [120, 190, 255], D: [255, 205, 100], '1': [130, 255, 170], '2': [210, 220, 255], '3': [255, 176, 84], '4': [255, 96, 96] };
-  var COL = ' It acts on the whole column, whatever row it sits in.';
-  var FLY = ' It acts on the whole column. Its row sets the 9-tall corridor: floor = row - 4, never below the ground.';
+  var COL = ' Acts on the whole column, whatever row it sits in.';
+  var FLY = ' Acts on the whole column; its row sets the 9-tall corridor (floor = row - 4, min 0).';
   var TOOLS = [
     { id: 'pan', grp: 0, name: 'Pan', hint: 'Pan: drag to move the view. Two fingers, the wheel and the slider scroll too.' },
     { id: 'erase', grp: 0, name: 'Erase', hint: 'Erase: tap or drag over tiles to remove them.' },
@@ -3082,10 +3112,10 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     { id: 'padCeil', grp: 3, t: '~', name: 'Ceiling pad', hint: 'Ceiling pad: a jump pad for flipped gravity.' },
     { id: 'core', grp: 3, t: 'c', name: 'Core', single: true, hint: 'Core: an optional pickup. A level holds 3 at most.' },
     { id: 'gateH', grp: 4, t: 'H', tag: 'HOP', name: 'Hop gate', single: true, hint: 'HOP gate: back to jumping.' + COL },
-    { id: 'gateG', grp: 4, t: 'G', tag: 'FLY', name: 'Fly gate', single: true, hint: 'FLY gate: hold to climb, release to sink.' + FLY },
-    { id: 'gateZ', grp: 4, t: 'Z', tag: 'ZIG', name: 'Zig gate', single: true, hint: 'ZIG gate: hold to rise, release to dive.' + FLY },
-    { id: 'gateU', grp: 4, t: 'U', tag: 'G UP', name: 'Gravity up gate', single: true, hint: 'G UP gate: gravity flips towards the ceiling.' + COL },
-    { id: 'gateD', grp: 4, t: 'D', tag: 'G DOWN', name: 'Gravity down gate', single: true, hint: 'G DOWN gate: gravity returns to the ground.' + COL },
+    { id: 'gateG', grp: 4, t: 'G', tag: 'FLY', name: 'Fly gate', single: true, hint: 'FLY gate: hold to climb.' + FLY },
+    { id: 'gateZ', grp: 4, t: 'Z', tag: 'ZIG', name: 'Zig gate', single: true, hint: 'ZIG gate: hold to rise.' + FLY },
+    { id: 'gateU', grp: 4, t: 'U', tag: 'G UP', name: 'Gravity up gate', single: true, hint: 'G UP gate: gravity flips to the ceiling.' + COL },
+    { id: 'gateD', grp: 4, t: 'D', tag: 'G DOWN', name: 'Gravity down gate', single: true, hint: 'G DOWN gate: gravity back to the ground.' + COL },
     { id: 'gate1', grp: 5, t: '1', tag: '0.75x', name: 'Speed 0.75x gate', single: true, hint: '0.75x gate: slows the scroll.' + COL },
     { id: 'gate2', grp: 5, t: '2', tag: '1x', name: 'Speed 1x gate', single: true, hint: '1x gate: normal speed.' + COL },
     { id: 'gate3', grp: 5, t: '3', tag: '1.25x', name: 'Speed 1.25x gate', single: true, hint: '1.25x gate: faster scroll.' + COL },
@@ -3101,7 +3131,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     panel: null, opener: null, mark: null, busy: false, lastVerify: null,
     msg: '', kind: '', sticky: false, warn: ''
   };
-  var V = { W: 0, H: 0, B: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false };
+  var V = { W: 0, H: 0, B: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false, statusMin: -1 };
   var el = {}, sc = null, reduced = false, mqWide = null, msgT = 0, seq = 0;
 
   function $(id) { return doc.getElementById(id); }
@@ -3109,6 +3139,19 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   function rgba(a, al) { return 'rgba(' + a[0] + ',' + a[1] + ',' + a[2] + ',' + al + ')'; }
   function isInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
   function songOf(id) { for (var i = 0; i < SONGS.length; i++) if (SONGS[i].id === id) return SONGS[i]; return null; }
+  /* the audio engine is the source of truth for level songs and their tempo; the list above is the fallback */
+  function readSongs() {
+    var tbl = root.PAudio && root.PAudio.songs, out = [], seen = {}, id;
+    if (!tbl || typeof tbl !== 'object') return;
+    function add(k) {
+      var s = tbl[k];
+      if (!s || seen[k] || k === 'menu' || !(s.bpm > 0)) return;
+      seen[k] = 1; out.push({ id: k, name: String(s.name || k), bpm: s.bpm });
+    }
+    SONGS.forEach(function (s) { add(s.id); });
+    for (id in tbl) if (Object.prototype.hasOwnProperty.call(tbl, id)) add(id);
+    if (out.length) SONGS = out;
+  }
   function fail(msg) { var e = new Error(msg); e.friendly = true; throw e; }
 
   /* ---------- level data ---------- */
@@ -3559,18 +3602,21 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   }
 
   /* ---------- panels ---------- */
-  var armBtn = null, armLabel = '', armT = 0;
+  var armBtn = null, armLabel = '', armT = 0, armNote = null, armText = '';
   function disarm() {
     root.clearTimeout(armT);
     if (armBtn) { armBtn.textContent = armLabel; armBtn.classList.remove('ed-armed'); }
-    armBtn = null;
+    if (armNote) armNote.textContent = armText;
+    armBtn = null; armNote = null;
   }
-  /* two-step confirm built into the button: the first tap asks, the second within 3.5 s acts */
-  function confirmTap(btn, ask, fn) {
-    if (armBtn === btn) { disarm(); fn(); return; }
+  /* two-step confirm built into the page: the first press turns the button into Confirm and says why
+     in noteEl, the second press within 4 s acts. Anything else puts it back. */
+  function confirmTap(btn, noteEl, why, fn) {
+    if (armBtn === btn) { armNote = null; disarm(); fn(); return; }
     disarm();
-    armBtn = btn; armLabel = btn.textContent; btn.textContent = ask; btn.classList.add('ed-armed');
-    armT = root.setTimeout(disarm, 3500);
+    armBtn = btn; armLabel = btn.textContent; btn.textContent = 'Confirm'; btn.classList.add('ed-armed');
+    armNote = noteEl; armText = noteEl.textContent; noteEl.textContent = why;
+    armT = root.setTimeout(disarm, 4000);
   }
   function panelEl(name) { return name === 'more' ? el.more : (name === 'levels' ? el.levelsPanel : el.codePanel); }
   function openPanel(name, focusEl) {
@@ -3639,7 +3685,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     if (!rec) { buildList(); return; }
     if (act === 'load') {
       var go = function () { loadRecord(rec, false); closePanel(); say('Loaded "' + rec.name + '".', 'ok'); };
-      if (S.dirty && rec.id !== S.id) confirmTap(btn, 'Drop changes?', go); else if (S.dirty) confirmTap(btn, 'Revert?', go); else go();
+      if (S.dirty) confirmTap(btn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them and loads "' + rec.name + '".', go); else go();
     } else if (act === 'dup') {
       if (list.length >= MAX_SAVED) { el.levelsInfo.textContent = 'You already have ' + MAX_SAVED + ' saved levels. Delete one first.'; return; }
       var copy = { id: newId(taken), name: cleanName(rec.name.slice(0, NAME_MAX - 5) + ' copy'), song: rec.song, pal: rec.pal, width: rec.width, rows: rec.rows, updated: Date.now() };
@@ -3647,7 +3693,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       if (writeStore(list)) { buildList(); el.levelsInfo.textContent = 'Made "' + copy.name + '".'; var nb = $('edLoad-' + copy.id); if (nb) nb.focus({ preventScroll: true }); }
       else el.levelsInfo.textContent = 'Could not duplicate: storage is full or blocked.';
     } else if (act === 'del') {
-      confirmTap(btn, 'Tap again', function () {
+      confirmTap(btn, el.levelsInfo, 'Delete "' + rec.name + '" for good? Press Confirm.', function () {
         list.splice(at, 1);
         if (!writeStore(list)) { el.levelsInfo.textContent = 'Could not delete: storage is blocked.'; return; }
         if (rec.id === S.id) { S.dirty = true; syncButtons(); }
@@ -3683,17 +3729,18 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     var rec;
     try { rec = decode(el.codeText.value); }
     catch (e) { disarm(); el.codeMsg.textContent = e.friendly ? e.message : 'The code could not be read. Copy it again in full.'; return; }
-    el.codeMsg.textContent = '';
+    if (armBtn !== el.importBtn) el.codeMsg.textContent = '';
     var go = function () {
       rec.id = newId(); loadRecord(rec, true); closePanel();
       say('Imported "' + rec.name + '". Save keeps it in this browser.', 'ok');
     };
-    if (S.dirty) confirmTap(el.importBtn, 'Drop changes?', go); else go();
+    if (S.dirty) confirmTap(el.importBtn, el.codeMsg, 'The open level has unsaved changes. Confirm replaces it.', go); else go();
   }
 
   /* ---------- test play and the bot ---------- */
   function onEnter() {
     S.active = true; S.snap = true; S.stroke = null; S.pinch = null; S.ptrs = {}; S.nptr = 0; S.hover = null;
+    V.statusMin = -1;
     place(); applyPal(); renderStatus(); syncButtons();
   }
   function open() {
@@ -3756,8 +3803,10 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   function measure() {
     var v = R.view, o = R.toScreen(S.camX, S.camY);
     V.W = v.W; V.H = v.H; V.B = v.B; V.px0 = o.x; V.baseY = o.y;
+    if (V.statusMin < 0) V.statusMin = parseFloat(root.getComputedStyle(el.status).minHeight) || 0;
     V.top = el.bar.getBoundingClientRect().bottom;
-    V.bot = el.bottom.getBoundingClientRect().top;
+    // a message that wraps past the reserved lines grows the bar upwards; ignore that so the view holds still
+    V.bot = el.bottom.getBoundingClientRect().top + Math.max(0, el.status.offsetHeight - V.statusMin);
   }
   function panBy(dx, dy) { S.camX += dx; S.camY += dy; clampCam(); }
   function flipView() { S.camY = S.camY - V.lo < (V.hi - V.lo) / 2 ? V.hi : V.lo; clampCam(); }
@@ -3993,7 +4042,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
     click(el.importBtn, importCode);
     click(el.newBtn, function () {
       var go = function () { newLevel(); closePanel(); say('New level. The tiles are an example: paint over them or use Clear tiles under More.', 'ok', false, 7000); };
-      if (S.dirty) confirmTap(el.newBtn, 'Drop changes?', go); else go();
+      if (S.dirty) confirmTap(el.newBtn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them.', go); else go();
     });
     el.list.addEventListener('click', onListClick);
 
@@ -4015,7 +4064,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       var onMq = function () { closePanel(true); place(); };
       if (mqWide.addEventListener) mqWide.addEventListener('change', onMq); else if (mqWide.addListener) mqWide.addListener(onMq);
     }
-    root.addEventListener('resize', function () { if (S.panel === 'more') closePanel(true); });
+    root.addEventListener('resize', function () { V.statusMin = -1; if (S.panel === 'more') closePanel(true); });
   }
 
   function init() {
@@ -4043,6 +4092,7 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
       mqWide = root.matchMedia ? root.matchMedia('(min-width: 1180px)') : null;
     } catch (e) { mqWide = null; }
     S.store = probeStore();
+    readSongs();
     buildTools(); fillSelects();
     S.ready = true;
     newLevel();

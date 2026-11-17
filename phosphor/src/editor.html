@@ -65,7 +65,11 @@
 #editor .ed-layer { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; pointer-events: none; }
 #editor .panel:focus { outline: none; }
 #editor .ed-panel { width: min(100%, 520px); max-height: 100%; overflow-y: auto; pointer-events: auto; scrollbar-width: thin; }
-#editor .ed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#editor .ed-panel > * { flex: 0 0 auto; }
+#editor #edLevelsPanel { overflow: hidden; }
+#editor .ed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+#editor .ed-list:empty { display: none; }
+#editor .ed-item { flex: 0 0 auto; }
 #editor .ed-item { border: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 #editor .ed-item b { display: block; font: 600 17px/1.2 var(--f-ui); color: var(--ink); overflow-wrap: anywhere; }
 #editor .ed-item span { font: 12px/1.4 var(--f-data); letter-spacing: 0.06em; color: var(--dim); text-transform: uppercase; }
@@ -75,7 +79,7 @@
 
 @media (max-width: 620px) {
   #editor .ed-main { flex-direction: column; align-items: stretch; }
-  #editor .ed-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  #editor .ed-r { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
   #editor .ed-r2 > button:not(.ed-ic) { flex: 1 1 auto; }
   #editor .ed-info { flex-direction: column; align-items: stretch; }
   #editor .ed-status { flex: 0 0 auto; min-height: 3.9em; }
@@ -144,7 +148,7 @@
 
   <div class="ed-shade" id="edShade" hidden></div>
   <div class="ed-layer">
-    <div class="panel ed-panel" id="edLevelsPanel" role="dialog" aria-labelledby="edLevelsTitle" hidden>
+    <div class="panel ed-panel" id="edLevelsPanel" role="dialog" aria-modal="true" aria-labelledby="edLevelsTitle" hidden>
       <h2 id="edLevelsTitle">Your levels</h2>
       <p id="edLevelsInfo"></p>
       <ul class="ed-list" id="edList"></ul>
@@ -153,7 +157,7 @@
         <button type="button" id="edLevelsClose">Close</button>
       </div>
     </div>
-    <div class="panel ed-panel" id="edCodePanel" role="dialog" aria-labelledby="edCodeTitle" hidden>
+    <div class="panel ed-panel" id="edCodePanel" role="dialog" aria-modal="true" aria-labelledby="edCodeTitle" hidden>
       <h2 id="edCodeTitle">Level code</h2>
       <p id="edCodeInfo"></p>
       <textarea id="edCodeText" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-labelledby="edCodeTitle"></textarea>

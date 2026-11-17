@@ -172,6 +172,40 @@ async function run(browser, sz, opts) {
   await page.keyboard.press('Home'); await frameSettle();
   ok(Math.abs((await state()).camX - cam0) < 0.01, 'the scrubber did not return to the start');
   await page.evaluate(() => document.activeElement.blur());
+  // Pan tool: dragging 4 columns to the left moves the view 4 columns on, and paints nothing
+  await tool('pan');
+  let before = await state();
+  let pa = await at(8, 2), pb = await at(4, 2);
+  await page.mouse.move(pa.x, pa.y); await page.mouse.down(); await page.mouse.move(pb.x, pb.y, { steps: 5 }); await page.mouse.up();
+  await frameSettle();
+  st = await state();
+  ok(Math.abs(st.camX - before.camX - 4) < 0.05 && st.undo === before.undo, 'the Pan tool did not drag the view by 4 columns');
+  await page.keyboard.press('Home'); await frameSettle();
+  if (sz.touch) {
+    const cdp = await ctx.newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type: type, touchPoints: pts });
+    await tool('block');
+    before = await state();
+    // one finger drags a stroke
+    pa = await at(4, 2); pb = await at(7, 2);
+    await touch('touchStart', [{ x: pa.x, y: pa.y, id: 1 }]);
+    for (let i = 1; i <= 4; i++) await touch('touchMove', [{ x: pa.x + (pb.x - pa.x) * i / 4, y: pa.y, id: 1 }]);
+    await touch('touchEnd', []);
+    ok((await Promise.all([4, 5, 6, 7].map(x => cell(x, 2)))).join('') === '####' && (await state()).undo === before.undo + 1, 'a one-finger drag did not paint one stroke');
+    await page.click('#edUndo');
+    // two fingers pan and leave no tiles behind
+    before = await state();
+    pa = await at(8, 2); pb = await at(9, 3);
+    await touch('touchStart', [{ x: pa.x, y: pa.y, id: 1 }]);
+    await touch('touchStart', [{ x: pa.x, y: pa.y, id: 1 }, { x: pb.x, y: pb.y, id: 2 }]);
+    for (let i = 1; i <= 5; i++) await touch('touchMove', [{ x: pa.x - 30 * i, y: pa.y, id: 1 }, { x: pb.x - 30 * i, y: pb.y, id: 2 }]);
+    await touch('touchEnd', []);
+    await frameSettle();
+    st = await state();
+    ok(st.camX > before.camX + 3.5, 'a two-finger drag did not pan the view (' + before.camX.toFixed(2) + ' -> ' + st.camX.toFixed(2) + ')');
+    ok(st.undo === before.undo && (await cell(8, 2)) === '.', 'a two-finger drag left a tile or an undo step behind');
+    await page.keyboard.press('Home'); await frameSettle();
+  }
   const rowsVisible = () => page.evaluate(() => {
     const top = document.getElementById('edBar').getBoundingClientRect().bottom, bot = document.getElementById('edBottom').getBoundingClientRect().top;
     const y0 = window.PRender.toScreen(1, 0.5).y, y9 = window.PRender.toScreen(1, 9.5).y;
@@ -288,7 +322,7 @@ async function run(browser, sz, opts) {
   await shot('9-bad-code');
   await page.fill('#edCodeText', '  ' + code.slice(0, 40) + '\n' + code.slice(40) + '  ');   // pasted with stray whitespace
   await page.click('#edImport');
-  ok(/Drop changes/.test(await page.textContent('#edImport')), 'importing over unsaved changes should ask first');
+  ok((await page.textContent('#edImport')) === 'Confirm' && /unsaved changes/.test(await page.textContent('#edCodeMsg')), 'importing over unsaved changes should ask first');
   await page.click('#edImport');
   await page.waitForFunction(() => window.PEditor.state().panel === null);
   st = await state();
@@ -310,7 +344,7 @@ async function run(browser, sz, opts) {
     await shot('10-levels');
     const copyId = await page.evaluate(() => document.querySelector('#edList button[data-act=del]').getAttribute('data-id'));
     await page.click('#edDel-' + copyId);
-    ok((await names()).length === 2 && /again/i.test(await page.textContent('#edDel-' + copyId)), 'Delete should ask for a second tap');
+    ok((await names()).length === 2 && (await page.textContent('#edDel-' + copyId)) === 'Confirm' && /for good/.test(await page.textContent('#edLevelsInfo')), 'Delete should ask for a second press');
     await page.click('#edDel-' + copyId);
     ok((await names()).join('|') === myName, 'Delete did not remove the copy');
     await page.click('#edLoad-' + saved.id);
@@ -323,7 +357,7 @@ async function run(browser, sz, opts) {
     await tool('block'); await clickCell(3, 3);
     await reveal('#edLevels'); await page.click('#edLevels');
     await page.click('#edNew');
-    ok(/Drop changes/.test(await page.textContent('#edNew')), 'New should ask before dropping unsaved changes');
+    ok((await page.textContent('#edNew')) === 'Confirm' && /unsaved changes/.test(await page.textContent('#edLevelsInfo')), 'New should ask before dropping unsaved changes');
     await page.click('#edNew');
     await page.waitForFunction(() => window.PEditor.state().panel === null);
     st = await state();

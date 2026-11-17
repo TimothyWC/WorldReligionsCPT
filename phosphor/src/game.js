@@ -22,6 +22,8 @@
       if (j && typeof j === 'object') { for (var k in save) if (j[k] !== undefined && typeof j[k] === typeof save[k]) save[k] = j[k]; }
     } catch (e) { /* storage blocked: play without saving */ }
     if (root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches) save.calm = true;
+    var keep = 'daily-' + today();
+    for (var id in save.lv) if (id.indexOf('daily-') === 0 && id !== keep) delete save.lv[id];
   }
   function persist() { try { root.localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } }
   function rec(id) { return save.lv[id] || (save.lv[id] = { n: 0, p: 0, cores: 0, att: 0, done: 0 }); }
@@ -31,7 +33,7 @@
     mode: 'menu', sel: 0, L: LV[0], s: E.newState(), px: 0, py: 0.5, target: 0, alpha: 0,
     practice: false, attempts: 0, jumps: 0, coins: 0, used: {}, cps: [], lastCp: 0,
     trail: [], parts: [], rot: 0, shake: 0, flash: 0, flashCol: 0, deadT: 0, doneT: 0, shown: false,
-    wait: 0, ti: 0, dh: false, custom: null, secI: 0, snap: true, dust: 0, hints: {}, exit: 0, bestAtStart: 0, screen: 'menu', back: 'menu'
+    wait: 0, ti: 0, dh: false, custom: null, squash: 0, secI: 0, snap: true, dust: 0, hints: {}, exit: 0, bestAtStart: 0, screen: 'menu', back: 'menu'
   };
   var input = { hold: false, latch: false, block: false, ptrs: {}, nptr: 0, key: false };
   var EV = [];
@@ -338,10 +340,12 @@
       e = EV[i];
       switch (e.type) {
         case 'jump':
+          G.squash = -0.2;
           if (play) { G.jumps++; au('sfx', 'jump'); }
           spark(s.x - 0.2, fy, 5, 0, 4, { dir: s.grav > 0 ? 3.6 : 2.7, spread: 1.2, life: 0.3 });
           break;
         case 'land':
+          G.squash = 0.26;
           if (play) au('sfx', 'land');
           spark(s.x, fy, 4, 0, 3.5, { dir: 3.14, spread: 2.4, life: 0.25, size: 0.1 });
           break;
@@ -429,6 +433,7 @@
       if (p.life <= 0) { G.parts.splice(i, 1); continue; }
       p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= p.g * dt;
     }
+    if (G.squash) { G.squash *= Math.exp(-dt * 16); if (Math.abs(G.squash) < 0.004) G.squash = 0; }
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 3.2);
     if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 1.6);
     if (G.mode === 'done') {
@@ -451,7 +456,7 @@
     else sc.camX = undefined;
     var pu = G.mode === 'play' ? au('pulse') : null;
     sc.pulse = typeof pu === 'number' ? pu : Math.exp(-(((G.target % 1) + 1) % 1) * 5) * (G.mode === 'menu' ? 0.6 : 1);
-    sc.rot = G.rot; sc.used = G.used; sc.coins = G.coins; sc.owned = rec(L.id).cores;
+    sc.rot = G.rot; sc.squash = s.mode === C.HOP ? (G.squash || 0) : 0; sc.used = G.used; sc.coins = G.coins; sc.owned = rec(L.id).cores;
     sc.cps = G.practice ? G.cps : null;
     sc.shake = G.shake; sc.flash = G.flash; sc.flashCol = G.flashCol;
     sc.skin = save.skin; sc.tint = save.tint;
@@ -502,6 +507,8 @@
     ui.toast.textContent = t; ui.toast.classList.add('on');
     clearTimeout(toastT); toastT = setTimeout(function () { ui.toast.classList.remove('on'); }, 1800);
   }
+
+  function toastMenu(t) { var k = ui.root.querySelector('.foot .keys'); if (k) k.textContent = t; }
 
   function css(a) { return 'rgb(' + a[0] + ',' + a[1] + ',' + a[2] + ')'; }
   function setTrace(L) {
@@ -659,6 +666,18 @@
     ui.next.addEventListener('click', function () { if (settled()) startLevel(Math.min(LV.length - 1, G.sel + 1), false); });
     ui.again.addEventListener('click', function () { if (settled()) startL(G.L, G.practice); });
     ui.doneMenu.addEventListener('click', toMenu);
+    // fullscreen is optional: phones and some embedded views do not offer it
+    var full = $('btnFull'), de = document.documentElement;
+    if (document.fullscreenEnabled && de.requestFullscreen && !(root.matchMedia && root.matchMedia('(pointer: coarse)').matches)) {
+      full.hidden = false;
+      full.addEventListener('click', function () {
+        try {
+          var p = document.fullscreenElement ? document.exitFullscreen() : de.requestFullscreen();
+          if (p && p.catch) p.catch(function () { toastMenu('Fullscreen is not available here'); });
+        } catch (e) { /* refused */ }
+      });
+      document.addEventListener('fullscreenchange', function () { full.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'; R.resize(); });
+    }
     $('btnCp').addEventListener('click', function () { addCp(false); });
     $('btnCpDel').addEventListener('click', delCp);
 

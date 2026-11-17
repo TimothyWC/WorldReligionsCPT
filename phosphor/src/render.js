@@ -375,6 +375,12 @@
     var X = sx(sc.x), Y = sy(sc.y);
     ctx.save();
     ctx.translate(X, Y);
+    if (sc.squash) {
+      // squash on landing, stretch on take-off, anchored at the feet
+      var q = sc.squash, g = sc.s.grav;
+      ctx.translate(0, g * B * 0.5 * q);
+      ctx.scale(1 + q * 0.7, 1 - q);
+    }
     ctx.rotate(sc.rot);
     if (sc.s.grav < 0 && sc.s.mode !== C.HOP) ctx.scale(1, -1);
     drawPlayerShape(ctx, sc.s.mode, B, sc.skin || 0, TINTS[sc.tint || 0], Math.max(1.5, B * 0.055));

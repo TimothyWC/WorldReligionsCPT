@@ -22,8 +22,8 @@
   var PAL_NAMES = ['Green', 'Amber', 'Ice', 'Violet', 'White-hot', 'Red alert'];
   var TILES = '.#=-^v,`<>*xo_~cHGZUD1234', HAZ = '^v,`<>*x', GATES = 'HGZUD1234';
   var GATE_COL = { U: [120, 190, 255], D: [255, 205, 100], '1': [130, 255, 170], '2': [210, 220, 255], '3': [255, 176, 84], '4': [255, 96, 96] };
-  var COL = ' It acts on the whole column, whatever row it sits in.';
-  var FLY = ' It acts on the whole column. Its row sets the 9-tall corridor: floor = row - 4, never below the ground.';
+  var COL = ' Acts on the whole column, whatever row it sits in.';
+  var FLY = ' Acts on the whole column; its row sets the 9-tall corridor (floor = row - 4, min 0).';
   var TOOLS = [
     { id: 'pan', grp: 0, name: 'Pan', hint: 'Pan: drag to move the view. Two fingers, the wheel and the slider scroll too.' },
     { id: 'erase', grp: 0, name: 'Erase', hint: 'Erase: tap or drag over tiles to remove them.' },
@@ -43,10 +43,10 @@
     { id: 'padCeil', grp: 3, t: '~', name: 'Ceiling pad', hint: 'Ceiling pad: a jump pad for flipped gravity.' },
     { id: 'core', grp: 3, t: 'c', name: 'Core', single: true, hint: 'Core: an optional pickup. A level holds 3 at most.' },
     { id: 'gateH', grp: 4, t: 'H', tag: 'HOP', name: 'Hop gate', single: true, hint: 'HOP gate: back to jumping.' + COL },
-    { id: 'gateG', grp: 4, t: 'G', tag: 'FLY', name: 'Fly gate', single: true, hint: 'FLY gate: hold to climb, release to sink.' + FLY },
-    { id: 'gateZ', grp: 4, t: 'Z', tag: 'ZIG', name: 'Zig gate', single: true, hint: 'ZIG gate: hold to rise, release to dive.' + FLY },
-    { id: 'gateU', grp: 4, t: 'U', tag: 'G UP', name: 'Gravity up gate', single: true, hint: 'G UP gate: gravity flips towards the ceiling.' + COL },
-    { id: 'gateD', grp: 4, t: 'D', tag: 'G DOWN', name: 'Gravity down gate', single: true, hint: 'G DOWN gate: gravity returns to the ground.' + COL },
+    { id: 'gateG', grp: 4, t: 'G', tag: 'FLY', name: 'Fly gate', single: true, hint: 'FLY gate: hold to climb.' + FLY },
+    { id: 'gateZ', grp: 4, t: 'Z', tag: 'ZIG', name: 'Zig gate', single: true, hint: 'ZIG gate: hold to rise.' + FLY },
+    { id: 'gateU', grp: 4, t: 'U', tag: 'G UP', name: 'Gravity up gate', single: true, hint: 'G UP gate: gravity flips to the ceiling.' + COL },
+    { id: 'gateD', grp: 4, t: 'D', tag: 'G DOWN', name: 'Gravity down gate', single: true, hint: 'G DOWN gate: gravity back to the ground.' + COL },
     { id: 'gate1', grp: 5, t: '1', tag: '0.75x', name: 'Speed 0.75x gate', single: true, hint: '0.75x gate: slows the scroll.' + COL },
     { id: 'gate2', grp: 5, t: '2', tag: '1x', name: 'Speed 1x gate', single: true, hint: '1x gate: normal speed.' + COL },
     { id: 'gate3', grp: 5, t: '3', tag: '1.25x', name: 'Speed 1.25x gate', single: true, hint: '1.25x gate: faster scroll.' + COL },
@@ -62,7 +62,7 @@
     panel: null, opener: null, mark: null, busy: false, lastVerify: null,
     msg: '', kind: '', sticky: false, warn: ''
   };
-  var V = { W: 0, H: 0, B: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false };
+  var V = { W: 0, H: 0, B: 40, px0: 0, baseY: 0, top: 0, bot: 0, minX: 0, maxX: 0, lo: 0, hi: 0, panY: false, statusMin: -1 };
   var el = {}, sc = null, reduced = false, mqWide = null, msgT = 0, seq = 0;
 
   function $(id) { return doc.getElementById(id); }
@@ -70,6 +70,19 @@
   function rgba(a, al) { return 'rgba(' + a[0] + ',' + a[1] + ',' + a[2] + ',' + al + ')'; }
   function isInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
   function songOf(id) { for (var i = 0; i < SONGS.length; i++) if (SONGS[i].id === id) return SONGS[i]; return null; }
+  /* the audio engine is the source of truth for level songs and their tempo; the list above is the fallback */
+  function readSongs() {
+    var tbl = root.PAudio && root.PAudio.songs, out = [], seen = {}, id;
+    if (!tbl || typeof tbl !== 'object') return;
+    function add(k) {
+      var s = tbl[k];
+      if (!s || seen[k] || k === 'menu' || !(s.bpm > 0)) return;
+      seen[k] = 1; out.push({ id: k, name: String(s.name || k), bpm: s.bpm });
+    }
+    SONGS.forEach(function (s) { add(s.id); });
+    for (id in tbl) if (Object.prototype.hasOwnProperty.call(tbl, id)) add(id);
+    if (out.length) SONGS = out;
+  }
   function fail(msg) { var e = new Error(msg); e.friendly = true; throw e; }
 
   /* ---------- level data ---------- */
@@ -520,18 +533,21 @@
   }
 
   /* ---------- panels ---------- */
-  var armBtn = null, armLabel = '', armT = 0;
+  var armBtn = null, armLabel = '', armT = 0, armNote = null, armText = '';
   function disarm() {
     root.clearTimeout(armT);
     if (armBtn) { armBtn.textContent = armLabel; armBtn.classList.remove('ed-armed'); }
-    armBtn = null;
+    if (armNote) armNote.textContent = armText;
+    armBtn = null; armNote = null;
   }
-  /* two-step confirm built into the button: the first tap asks, the second within 3.5 s acts */
-  function confirmTap(btn, ask, fn) {
-    if (armBtn === btn) { disarm(); fn(); return; }
+  /* two-step confirm built into the page: the first press turns the button into Confirm and says why
+     in noteEl, the second press within 4 s acts. Anything else puts it back. */
+  function confirmTap(btn, noteEl, why, fn) {
+    if (armBtn === btn) { armNote = null; disarm(); fn(); return; }
     disarm();
-    armBtn = btn; armLabel = btn.textContent; btn.textContent = ask; btn.classList.add('ed-armed');
-    armT = root.setTimeout(disarm, 3500);
+    armBtn = btn; armLabel = btn.textContent; btn.textContent = 'Confirm'; btn.classList.add('ed-armed');
+    armNote = noteEl; armText = noteEl.textContent; noteEl.textContent = why;
+    armT = root.setTimeout(disarm, 4000);
   }
   function panelEl(name) { return name === 'more' ? el.more : (name === 'levels' ? el.levelsPanel : el.codePanel); }
   function openPanel(name, focusEl) {
@@ -600,7 +616,7 @@
     if (!rec) { buildList(); return; }
     if (act === 'load') {
       var go = function () { loadRecord(rec, false); closePanel(); say('Loaded "' + rec.name + '".', 'ok'); };
-      if (S.dirty && rec.id !== S.id) confirmTap(btn, 'Drop changes?', go); else if (S.dirty) confirmTap(btn, 'Revert?', go); else go();
+      if (S.dirty) confirmTap(btn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them and loads "' + rec.name + '".', go); else go();
     } else if (act === 'dup') {
       if (list.length >= MAX_SAVED) { el.levelsInfo.textContent = 'You already have ' + MAX_SAVED + ' saved levels. Delete one first.'; return; }
       var copy = { id: newId(taken), name: cleanName(rec.name.slice(0, NAME_MAX - 5) + ' copy'), song: rec.song, pal: rec.pal, width: rec.width, rows: rec.rows, updated: Date.now() };
@@ -608,7 +624,7 @@
       if (writeStore(list)) { buildList(); el.levelsInfo.textContent = 'Made "' + copy.name + '".'; var nb = $('edLoad-' + copy.id); if (nb) nb.focus({ preventScroll: true }); }
       else el.levelsInfo.textContent = 'Could not duplicate: storage is full or blocked.';
     } else if (act === 'del') {
-      confirmTap(btn, 'Tap again', function () {
+      confirmTap(btn, el.levelsInfo, 'Delete "' + rec.name + '" for good? Press Confirm.', function () {
         list.splice(at, 1);
         if (!writeStore(list)) { el.levelsInfo.textContent = 'Could not delete: storage is blocked.'; return; }
         if (rec.id === S.id) { S.dirty = true; syncButtons(); }
@@ -644,17 +660,18 @@
     var rec;
     try { rec = decode(el.codeText.value); }
     catch (e) { disarm(); el.codeMsg.textContent = e.friendly ? e.message : 'The code could not be read. Copy it again in full.'; return; }
-    el.codeMsg.textContent = '';
+    if (armBtn !== el.importBtn) el.codeMsg.textContent = '';
     var go = function () {
       rec.id = newId(); loadRecord(rec, true); closePanel();
       say('Imported "' + rec.name + '". Save keeps it in this browser.', 'ok');
     };
-    if (S.dirty) confirmTap(el.importBtn, 'Drop changes?', go); else go();
+    if (S.dirty) confirmTap(el.importBtn, el.codeMsg, 'The open level has unsaved changes. Confirm replaces it.', go); else go();
   }
 
   /* ---------- test play and the bot ---------- */
   function onEnter() {
     S.active = true; S.snap = true; S.stroke = null; S.pinch = null; S.ptrs = {}; S.nptr = 0; S.hover = null;
+    V.statusMin = -1;
     place(); applyPal(); renderStatus(); syncButtons();
   }
   function open() {
@@ -717,8 +734,10 @@
   function measure() {
     var v = R.view, o = R.toScreen(S.camX, S.camY);
     V.W = v.W; V.H = v.H; V.B = v.B; V.px0 = o.x; V.baseY = o.y;
+    if (V.statusMin < 0) V.statusMin = parseFloat(root.getComputedStyle(el.status).minHeight) || 0;
     V.top = el.bar.getBoundingClientRect().bottom;
-    V.bot = el.bottom.getBoundingClientRect().top;
+    // a message that wraps past the reserved lines grows the bar upwards; ignore that so the view holds still
+    V.bot = el.bottom.getBoundingClientRect().top + Math.max(0, el.status.offsetHeight - V.statusMin);
   }
   function panBy(dx, dy) { S.camX += dx; S.camY += dy; clampCam(); }
   function flipView() { S.camY = S.camY - V.lo < (V.hi - V.lo) / 2 ? V.hi : V.lo; clampCam(); }
@@ -954,7 +973,7 @@
     click(el.importBtn, importCode);
     click(el.newBtn, function () {
       var go = function () { newLevel(); closePanel(); say('New level. The tiles are an example: paint over them or use Clear tiles under More.', 'ok', false, 7000); };
-      if (S.dirty) confirmTap(el.newBtn, 'Drop changes?', go); else go();
+      if (S.dirty) confirmTap(el.newBtn, el.levelsInfo, 'The open level has unsaved changes. Confirm drops them.', go); else go();
     });
     el.list.addEventListener('click', onListClick);
 
@@ -976,7 +995,7 @@
       var onMq = function () { closePanel(true); place(); };
       if (mqWide.addEventListener) mqWide.addEventListener('change', onMq); else if (mqWide.addListener) mqWide.addListener(onMq);
     }
-    root.addEventListener('resize', function () { if (S.panel === 'more') closePanel(true); });
+    root.addEventListener('resize', function () { V.statusMin = -1; if (S.panel === 'more') closePanel(true); });
   }
 
   function init() {
@@ -1004,6 +1023,7 @@
       mqWide = root.matchMedia ? root.matchMedia('(min-width: 1180px)') : null;
     } catch (e) { mqWide = null; }
     S.store = probeStore();
+    readSongs();
     buildTools(); fillSelects();
     S.ready = true;
     newLevel();
