@@ -11,11 +11,11 @@ Published page: https://claude.ai/artifact/UjnEFNQDsz6pV1axdChxYH
 (republish by building, copying `dist/artifact.html` over the staged file, and publishing that same path)
 
 Checks to run after any change:
-`node tools/lint.js && node tools/solve.js all --coins --write --margin=0.1 && node tools/test.js && node build.js && node tools/smoke.js --full && node tools/daily-test.js`
+`node tools/lint.js && node tools/solve.js all --coins --write --margin=0.1 && node tools/test.js && node build.js && node tools/smoke.js --full && node tools/daily-test.js && node tools/flow-test.js && node tools/editor-test.js`
 Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tightest spot).
 
 ## Now
-- Level editor (parallel agent): review, integrate, test, publish
+- Editor follow-ups (parallel agent): zoom controls, autosave draft; then review, test, publish
 
 ## Next
 - Level 5 using mini / dual ideas, or a second Hard level
@@ -49,7 +49,9 @@ Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tig
 - Levels: First Trace (128, window 156 ms+), Carrier Wave (140, 143 ms+), Sidebands (136, 92 ms),
   Overdrive (150, 100 ms), 3 cores each, all proven collectible in one run
 - Daily level: seeded from the chunk pool, proven in the browser, cached per day (60 days tested offline)
-- Tests: engine invariants, browser smoke test at 3 screen sizes, daily test, audio render test
+- Level editor: paint, pan, undo, test-play, bot verify, 60 save slots, share codes (by a parallel agent)
+- Tests: engine invariants, browser smoke test at 3 screen sizes, daily test, flow test (40 checks:
+  checkpoints, pause, restart, saves, held input, next level), editor test (403 checks), audio render test
 
 ## Log
 - Engine + solver written, level 1 passes at margin 0.4
@@ -61,3 +63,5 @@ Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tig
 - Daily level generator added and tested for 60 days
 - First publish, then republished with 4 levels + Daily + music
 - git push refused (403, app not installed on the repo)
+- Level editor delivered; its review flagged a missing box-sizing / [hidden] reset in the published page, fixed
+- Flow test written, passed first run
