@@ -2,7 +2,8 @@
 /* Level editor test: drives the real page at desktop, landscape-phone and portrait-phone sizes.
    Paints with the mouse (and touch on the phone sizes), undo / redo, song + colour, bot verify,
    save + reload + saved list, share codes (export, import, bad codes), test-play and back,
-   and a run with storage blocked. Any console error, page error or failed check fails the run.
+   a run with storage blocked and a run inside a sandboxed frame (how a hosted page is embedded).
+   Any console error, page error or failed check fails the run.
    usage: node tools/editor-test.js [outDir]        (run `node build.js` first) */
 'use strict';
 const path = require('path');
@@ -430,6 +431,34 @@ async function run(browser, sz, opts) {
     ok((await state()).width === 88, 'Trim empty tail should leave 88 columns, got ' + (await state()).width);
     await page.click('#edUndo'); await page.click('#edUndo');
     ok((await state()).width === 96, 'undo did not restore the level width');
+
+    // undo depth: 56 separate strokes, then 56 undos
+    await tool('block');
+    const base = (await state()).undo, spots = [];
+    for (let y = 3; y <= 6; y++) for (let x = 2; x <= 15; x++) spots.push([x, y]);
+    for (const [x, y] of spots) await clickCell(x, y);
+    ok((await state()).undo === base + 56 && (await cell(15, 6)) === '#', '56 strokes should be 56 undo steps');
+    await page.evaluate(() => { const a = document.activeElement; if (a) a.blur(); });
+    for (let i = 0; i < 56; i++) await page.keyboard.press('Control+z');
+    const left = (await Promise.all(spots.map(p => cell(p[0], p[1])))).filter(t => t !== '.').length;
+    ok(left === 0 && (await state()).undo === base, 'undoing 56 strokes left ' + left + ' tiles behind');
+
+    // the longest level: 1200 columns
+    for (let i = 0; i < 35; i++) { await reveal('#edGrow'); await page.click('#edGrow'); }
+    ok((await state()).width === 1200, 'the level should grow to 1200 columns, got ' + (await state()).width);
+    await reveal('#edGrow'); await page.click('#edGrow');
+    ok((await state()).width === 1200 && /longest/.test(await status()), 'growing past 1200 columns should be refused with a message');
+    await page.evaluate(() => { const a = document.activeElement; if (a) a.blur(); });
+    await page.keyboard.press('End'); await frameSettle();
+    await clickCell(1199, 1);
+    ok((await cell(1199, 1)) === '#', 'could not paint in the last column of a 1200 column level');
+    const big = await page.evaluate(() => { const c = window.PEditor.code(), r = window.PEditor.decode(c); return { len: c.length, w: r.width, last: r.rows[8].charAt(1199), same: r.rows.join('|') === window.PEditor.def().chunks[0].rows.join('|') }; });
+    ok(big.w === 1200 && big.last === '#' && big.same && big.len < 1500, 'the code of a 1200 column level does not round-trip: ' + JSON.stringify(big));
+    await page.click('#edVerify');
+    await page.waitForFunction(() => /Beatable|stuck|unproven|could not/.test(document.getElementById('edStatus').textContent), null, { timeout: 60000 });
+    ok(/^Beatable\./.test(await status()), 'verify on the 1200 column level said: ' + (await status()));
+    await shot('13-longest');
+    await page.keyboard.press('Home'); await frameSettle();
   }
 
   /* ---- exit and come back ---- */
@@ -444,6 +473,52 @@ async function run(browser, sz, opts) {
   await ctx.close();
 }
 
+/* The hosted page runs inside a sandboxed frame: opaque origin, storage throws, clipboard is refused.
+   The editor must still open, paint, verify, hand out a code and test-play there. */
+async function runFramed(browser) {
+  const tag = 'sandboxed frame';
+  const ok = (cond, what) => { checks++; if (!cond) problems.push(tag + ': ' + what); return !!cond; };
+  const wrap = path.join(out, 'ed-frame-host.html');
+  fs.writeFileSync(wrap, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>' +
+    '<iframe sandbox="allow-scripts" src="' + file + '"></iframe>');
+  const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true });
+  const page = await ctx.newPage();
+  page.on('console', m => { if (m.type() === 'error') problems.push(tag + ' console: ' + m.text()); });
+  page.on('pageerror', e => problems.push(tag + ' pageerror: ' + e.message));
+  await page.goto('file://' + wrap);
+  const fr = page.frames().find(f => f !== page.mainFrame());
+  await fr.waitForFunction(() => window.__phosphor && window.__phosphor.G.mode === 'menu' && window.PEditor);
+  ok((await fr.evaluate(() => { try { window.localStorage.getItem('x'); return 'open'; } catch (e) { return e.name; } })) === 'SecurityError', 'the sandbox should block storage');
+  await fr.click('#btnEditor');
+  await fr.waitForFunction(() => window.__phosphor.G.mode === 'editor' && window.PEditor.state().active);
+  await page.waitForTimeout(250);
+  const status = () => fr.evaluate(() => document.getElementById('edStatus').textContent);
+  const p = await fr.evaluate(() => window.PRender.toScreen(4.5, 3.5));
+  await page.mouse.click(p.x, p.y);
+  ok((await fr.evaluate(() => window.PEditor.cell(4, 3))) === '#', 'painting does not work inside a sandboxed frame');
+  await fr.click('#edSave');
+  ok(/blocking storage/.test(await status()), 'Save inside a sandbox should explain that storage is blocked: ' + (await status()));
+  await fr.click('#edVerify');
+  await fr.waitForFunction(() => /Beatable|stuck|unproven|could not/.test(document.getElementById('edStatus').textContent), null, { timeout: 30000 });
+  ok(/^Beatable\./.test(await status()), 'verify inside a sandbox said: ' + (await status()));
+  await fr.click('#edMoreBtn'); await fr.click('#edCopy');
+  await fr.waitForFunction(() => /copied/.test(document.getElementById('edStatus').textContent) || window.PEditor.state().panel === 'code', null, { timeout: 5000 });
+  const st = await fr.evaluate(() => ({ panel: window.PEditor.state().panel, box: document.getElementById('edCodeText').value, code: window.PEditor.code() }));
+  ok(st.panel !== 'code' || st.box === st.code, 'the fallback code box is wrong inside a sandbox');
+  await page.screenshot({ path: path.join(out, 'ed-sandbox-code.png') });
+  if (st.panel === 'code') await fr.click('#edCodeClose');
+  await fr.click('#edTest');
+  await fr.waitForFunction(() => window.__phosphor.G.mode === 'play');
+  await page.waitForTimeout(400);
+  await fr.click('#btnPause');
+  await fr.waitForFunction(() => window.__phosphor.G.mode === 'pause');
+  await fr.click('#btnQuit');
+  await fr.waitForFunction(() => window.__phosphor.G.mode === 'editor' && window.PEditor.state().active);
+  ok(await fr.evaluate(() => !document.getElementById('editor').hidden && window.PEditor.cell(4, 3) === '#'), 'the editor did not come back after a test run inside a sandbox');
+  await ctx.close();
+}
+
 (async () => {
   fs.mkdirSync(out, { recursive: true });
   const browser = await chromium.launch();
@@ -455,6 +530,9 @@ async function run(browser, sz, opts) {
   try { await run(browser, SIZES[1], { blocked: true }); }
   catch (e) { problems.push('storage blocked: test aborted: ' + e.message.split('\n')[0]); }
   console.log('storage blocked: done');
+  try { await runFramed(browser); }
+  catch (e) { problems.push('sandboxed frame: test aborted: ' + e.message.split('\n')[0]); }
+  console.log('sandboxed frame: done');
   await browser.close();
   if (problems.length) { console.log('FAILED (' + problems.length + ' of ' + checks + ' checks):\n  ' + problems.join('\n  ')); process.exit(1); }
   console.log('editor test passed: ' + checks + ' checks, screenshots in ' + out);

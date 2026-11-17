@@ -430,8 +430,9 @@
       else if (t.tagEl) t.tagEl.style.setProperty('--g', 'rgb(' + (GATE_COL[t.t] || p.acc).join(',') + ')');
     }
   }
+  function setCursor() { cv.style.cursor = S.active ? (S.tool.id === 'pan' ? 'grab' : 'crosshair') : ''; }
   function selectTool(t) {
-    S.tool = t;
+    S.tool = t; setCursor();
     for (var i = 0; i < TOOLS.length; i++) TOOLS[i].btn.setAttribute('aria-pressed', TOOLS[i] === t ? 'true' : 'false');
     say(t.hint, '', false, 7000);
   }
@@ -672,14 +673,14 @@
   function onEnter() {
     S.active = true; S.snap = true; S.stroke = null; S.pinch = null; S.ptrs = {}; S.nptr = 0; S.hover = null;
     V.statusMin = -1;
-    place(); applyPal(); renderStatus(); syncButtons();
+    place(); applyPal(); renderStatus(); syncButtons(); setCursor();
   }
   function open() {
     if (!S.ready) return;
     PG.enterEditor();
     onEnter();
   }
-  function leave() { closePanel(true); cancelStroke(); S.active = false; S.hover = null; }
+  function leave() { closePanel(true); cancelStroke(); S.active = false; S.hover = null; setCursor(); }
   function exit() { leave(); PG.exitEditor(); }
   function play(practice) {
     commitName();
@@ -1020,7 +1021,7 @@
     };
     try {
       reduced = !!(root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches);
-      mqWide = root.matchMedia ? root.matchMedia('(min-width: 1180px)') : null;
+      mqWide = root.matchMedia ? root.matchMedia('(min-width: 1280px)') : null;
     } catch (e) { mqWide = null; }
     S.store = probeStore();
     readSongs();

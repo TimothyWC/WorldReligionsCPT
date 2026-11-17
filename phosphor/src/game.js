@@ -15,7 +15,7 @@
 
   /* ---------- saved progress (per browser) ---------- */
   var SAVE_KEY = 'phosphor.save.v1';
-  var save = { lv: {}, music: 80, sfx: 80, calm: false, auto: true, skin: 0, tint: 0, offset: 0 };
+  var save = { lv: {}, music: 80, sfx: 80, calm: false, auto: true, skin: 0, tint: 0, offset: 0, streak: 0, streakDay: '' };
   function loadSave() {
     try {
       var j = JSON.parse(root.localStorage.getItem(SAVE_KEY) || 'null');
@@ -147,6 +147,9 @@
     spark(s.x, s.y, 40, 2, 12, { life: 0.9, g: 9 }); spark(s.x, s.y, 24, 3, 9, { life: 0.8, line: true, size: 0.06 });
     flash(0.3, 0);
     var before = G.custom ? 0 : unlockedSkins(totalCores());
+    if (!G.practice && G.custom && G.custom.daily && save.streakDay !== DAILY.date) {
+      save.streak = streakNow() + 1; save.streakDay = DAILY.date;
+    }
     if (G.practice) r.p = 100;
     else { r.n = 100; r.done = 1; r.cores |= G.coins; }
     G.newGlyph = !G.custom && unlockedSkins(totalCores()) > before;
@@ -162,7 +165,9 @@
       ? L.name + ' finished with checkpoints. Next step: one clean run in normal mode.'
       : L.name + ' cleared' + (bits(r.cores) >= L.coins ? (L.coins ? ' with every core recovered.' : '.') : '. ' + (L.coins - bits(r.cores)) + ' core' + (L.coins - bits(r.cores) === 1 ? '' : 's') + ' still out there.');
     if (G.newGlyph) ui.doneInfo.textContent += ' New glyph unlocked: pick it in Settings.';
+    if (!G.practice && G.custom && G.custom.daily) ui.doneInfo.textContent = 'Daily cleared. Streak: ' + streakNow() + ' day' + (streakNow() === 1 ? '' : 's') + '. A new one arrives at midnight.';
     ui.stAtt.textContent = G.attempts; ui.stJumps.textContent = G.jumps; ui.stCores.textContent = n + '/' + L.coins;
+    ui.stCores.parentNode.hidden = !L.coins;
     ui.next.hidden = last;
     ui.next.className = last ? '' : 'primary';
     ui.again.className = last ? 'primary' : '';
@@ -233,6 +238,15 @@
   function today() {
     var d = new Date(), m = d.getMonth() + 1, day = d.getDate();
     return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+  }
+  function dayBefore(date) {
+    var p = date.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2] - 1), m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+  }
+  /* days in a row with a cleared Daily (normal mode); 0 once a day is missed */
+  function streakNow() {
+    var t = today();
+    return save.streakDay === t || save.streakDay === dayBefore(t) ? save.streak : 0;
   }
   function noCores(ch) {
     var rows = (ch.rows || ch).map(function (r) { return r.replace(/c/g, '.'); });
@@ -536,7 +550,7 @@
       html += '<article class="card daily" tabindex="0" data-i="daily" style="--c:' + dcol + '" aria-label="Daily level">' +
         '<div class="card-head"><span class="ch">DAILY</span><span>' + D.date + '</span></div>' +
         '<h2>' + esc(D.def.name) + '</h2>' +
-        '<div class="card-meta"><span>' + D.def.bpm + ' BPM' + (dr.done ? ' / cleared' : '') + '</span><span>bot-verified</span></div>' +
+        '<div class="card-meta"><span>' + D.def.bpm + ' BPM' + (dr.done ? ' / cleared' : '') + '</span><span>' + (streakNow() ? 'streak ' + streakNow() : 'bot-verified') + '</span></div>' +
         '<div class="prog"><span>Normal</span><div class="meter"><i style="transform:scaleX(' + dr.n / 100 + ')"></i></div><b>' + dr.n + '%</b></div>' +
         '<div class="prog practice"><span>Practice</span><div class="meter"><i style="transform:scaleX(' + dr.p / 100 + ')"></i></div><b>' + dr.p + '%</b></div>' +
         '<div class="rowb"><button class="primary" data-act="play">Play</button><button data-act="practice">Practice</button></div>' +
