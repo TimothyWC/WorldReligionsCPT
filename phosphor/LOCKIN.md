@@ -11,16 +11,16 @@ Published page: https://claude.ai/artifact/UjnEFNQDsz6pV1axdChxYH
 (republish by building, copying `dist/artifact.html` over the staged file, and publishing that same path)
 
 Checks to run after any change:
-`node tools/lint.js && node tools/solve.js all --coins --write --margin=0.1 && node tools/test.js && node build.js && node tools/smoke.js --full && node tools/daily-test.js && node tools/flow-test.js && node tools/editor-test.js`
+`node tools/lint.js && node tools/harden.js && node tools/solve.js all --coins --write --margin=0.1 && node tools/test.js && node build.js && node tools/smoke.js --full && node tools/daily-test.js && node tools/flow-test.js && node tools/editor-test.js`
 Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tightest spot).
 
 ## Now
-- Nothing in flight. Next step is a real playtest (see Needs User), then tune from that feedback.
+- Nothing in flight. Waiting on a real playtest of the harder levels and Sawtooth (see Needs User).
 
 ## Next
-- Level 5 using mini / dual ideas, or a second Hard level
+- More wave trials as short standalone challenges (one per speed)
 - Show attempts and best run on the level cards
-- Daily: streak counter, and yesterday's level as a replay
+- Daily: yesterday's level as a replay
 
 ## Later
 - Mini mode and dual mode gates
@@ -28,10 +28,9 @@ Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tig
 - Share a Daily result as a short text line
 
 ## Needs User
-- GitHub push is blocked: the Claude GitHub App has no access to TimothyWC/WorldReligionsCPT.
-  Commits exist only in this session's container. Fix: connect GitHub at
-  https://claude.ai/connect-github and install the app on the repo, then ask for a push.
-  Until then the published page and the downloaded `phosphor.html` are the durable copies.
+- (resolved) GitHub push works now; the branch is `claude/charming-volta-eyx7m5`. No PR opened yet.
+- Difficulty check: every level was made harder by a tool. If one feels unfair or too easy, change
+  its `grid` in `tools/harden.js` (PLAN table) and rerun.
 - Feel check from a real player: jump height, flying sensitivity, difficulty order.
   The bot proves levels are possible and measures timing slack, it cannot say whether they are fun.
   All physics constants live in `C` at the top of `src/engine.js`.
@@ -46,8 +45,13 @@ Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tig
 - Game shell: menu with bot attract mode, HUD, pause, results, settings, practice checkpoints, saves,
   glyph unlocks, audio sync offset, wake lock, fullscreen
 - Music: 4 level tracks + menu loop, 10 sound effects, kick pulse drives visuals
-- Levels: First Trace (128, window 156 ms+), Carrier Wave (140, 143 ms+), Sidebands (136, 92 ms),
-  Overdrive (150, 100 ms), 3 cores each, all proven collectible in one run
+- Levels (timing window after hardening): First Trace 98 ms, Carrier Wave 89 ms, Sidebands 64 ms,
+  Overdrive 58 ms, Sawtooth 52 ms; 3 cores each, all proven collectible in one run
+- Sawtooth (CH5): zigzag gauntlet, five trials, all four speeds, gravity flips, sawtooth tunnels, own track
+- Hardening tool: solver-refereed extra hazards with a timing target per level (src/extras.js)
+- Decorations: backdrop motifs per colour theme, panelled blocks with rivets, struts, floaters,
+  runway lamps, speed streaks, gate arrows (all renderer-side, so custom and Daily levels get them)
+- L is a jump key (with Space, W, Up)
 - Daily level: seeded from the chunk pool, proven in the browser, cached per day (60 days tested offline)
 - Level editor: paint, pan, zoom, undo, test-play, bot verify, 60 save slots, autosave draft, share codes
   (by a parallel agent; default zoom fits all 10 rows, `CELL_MIN` in editor.js trades rows for finger size)
@@ -68,3 +72,5 @@ Level tuning: `node tools/windows.js` (timing slack per level in ms, and the tig
 - Flow test written, passed first run
 - Fairness tests added (seams, ceiling runs, ledge landings, sliding): all pass, no unfair deaths found
 - Editor zoom + autosave draft delivered, all suites green, republished (version 5)
+- Round 2 (user request): L key, decoration system, Sawtooth wave level + track, all levels hardened
+  via tools/harden.js; first pass overshot (28 ms spots), fixed with a timing-target repair step

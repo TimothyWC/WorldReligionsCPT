@@ -108,17 +108,20 @@
     fl.frequency.setValueAtTime(lo * (k === 2 ? 2 : 4.5), t); fl.frequency.exponentialRampToValueAtTime(lo, t + (k === 2 ? 0.3 : 0.13));
     fl.connect(g); g.connect(S.duck); free(o, g);
   }
-  function vPluck(S, t, d, m, v, pan) {
+  function vPluck(S, t, d, m, v, pan, br) {   // br (0..1, default 1) closes the filter for "filtered" passages
     var c = S.c, f = mtof(m), fl = c.createBiquadFilter(), g = decay(c, t, d, v * 0.42, 0.003);
     var o = osc(S, S.def.pluck || 'sawtooth', f, t, t + d + 0.02);
+    if (br == null) br = 1;
     fl.type = 'lowpass'; fl.Q.value = 1.5;
-    fl.frequency.setValueAtTime(Math.min(11000, f * 10), t); fl.frequency.exponentialRampToValueAtTime(Math.max(700, f * 2.5), t + 0.16);
+    fl.frequency.setValueAtTime(Math.min(11000, f * 10) * (0.15 + 0.85 * br), t);
+    fl.frequency.exponentialRampToValueAtTime(Math.max(700, f * 2.5) * (0.3 + 0.7 * br), t + 0.16);
     o.connect(fl); fl.connect(g); free(o, link(S, g, S.mel, pan));
   }
   // lead kinds: [wave1, wave2, detune cents, cutoff, Q, attack, release, level]
   var LEADS = [['sawtooth', 'square', 9, 3600, 1, 0.01, 0.1, 0.095], ['square', 'sawtooth', -11, 2300, 4, 0.006, 0.07, 0.085],
                ['sawtooth', 'sawtooth', 15, 3000, 2, 0.005, 0.07, 0.12], ['triangle', 'sawtooth', 8, 1400, 0.7, 0.08, 0.4, 0.12],
-               ['square', 'sawtooth', 1207, 3200, 6, 0.004, 0.06, 0.09]];   // 4: thin and wiry, second voice an octave up
+               ['square', 'sawtooth', 1207, 3200, 6, 0.004, 0.06, 0.09],    // 4: thin and wiry, second voice an octave up
+               ['sawtooth', 'sawtooth', 7, 4500, 3, 0.003, 0.045, 0.1]];     // 5: bright tight saw for fast runs
   function vLead(S, t, d, m, v, k) {
     var c = S.c, K = LEADS[k], f = mtof(m), e = t + d + K[6] + 0.02, fl = c.createBiquadFilter();
     var g = adsr(c, t, d, v * K[7], K[5], K[6], 0.75), cut = Math.max(K[3], f * 2.5), o = osc(S, K[0], f, t, e);
@@ -195,7 +198,7 @@
   };
 
   // ---------------------------------------------------------------- song data
-  // Drum strings: 16 chars per bar. x hit, X accent, o soft, g ghost, . rest.
+  // Drum strings (k s c h o sh cy tm): 16 chars per bar. x hit, X accent, o soft, g ghost, . rest.
   // bass: r root, R root+octave, f fifth, t third, _ hold.   arp: digit = chord-tone index (3+ wraps up an octave), _ hold.
   // lead / mel: "note/len" tokens (len in 16ths, default 1, r = rest).   ch: one chord per bar, looped across the section.
   var Z = '................', K4 = 'x...x...x...x...', BK = '....x.......x...', OFF = '..x...x...x...x.', OFS = '..o...o...o...o.';
@@ -230,6 +233,14 @@
   var SAIR = 'bb5/8 a5/4 f5/4 g5/8 e5/4 c5/4 a5/6 g5/2 e5/4 c5/4 d5/4 f#5/4 a5/4 d6/4';
   var SK = 'x..o..o.x..o..o.', SKF = x(SK, 3) + 'x..o..o.x..o.xox', SHAT = '.gx.gx.g.gx.gx.g', SCH = 'Gm Gm C C';
   var SBASS = 'r_.R.r_.r.R.rf.R', SPOLY = '..3..4..2..3..4.', OH2 = Z + '..............x.';
+  // Sawtooth: zigzag arpeggio runs in C harmonic minor over a straight four-on-the-floor
+  var W1 = 'c5 eb5 g5 c6 eb6 c6 g5 eb5 c5/2 g5/2 eb5/2 d5/2 ', W2 = 'c5 eb5 ab5 c6 eb6 c6 ab5 eb5 c5/2 ab5/2 eb5/2 c5/2 ';
+  var W3 = 'c5 f5 ab5 c6 eb6 c6 ab5 f5 c5/2 ab5/2 f5/2 d5/2 ', W4 = 'b4 d5 f5 ab5 b5 ab5 f5 d5 b4 d5 g5 b5 d6 b5 g5 d5 ', WHA = W1 + W2 + W3 + W4;
+  var WHB = 'eb6 c6 g5 eb5 c5 eb5 g5 c6 eb6/2 d6/2 c6/2 g5/2 eb6 c6 ab5 eb5 c5 eb5 ab5 c6 eb6/2 c6/2 ab5/2 eb5/2 ' +
+            'c6 ab5 f5 c5 f5 ab5 c6 ab5 f5/2 ab5/2 c6/2 d6/2 b5 d6 b5 g5 d5 g5 b5 d6 ab5 f5 d5 b4 d5 f5 ab5 b5';
+  var WSLOW = 'g5/8 eb5/4 d5/4 c5/8 eb5/4 ab5/4 ab5/8 g5/4 f5/4 d5/6 f5/2 ab5/4 b5/4';
+  var WZ = '0213243542312010', WARP = WZ + '02132435.4.3.2.1', WROLL = '.rrr.rrr.rrr.rrr', WDRIVE = '.rRr.rRr.rRr.rRr', WCH = 'Cm Ab Fm G';
+  var CY2 = K1 + Z, WK = K4 + 'x...x...x...x.x.', WS = BK + '....x.......x.xx', SH16 = 'xoxoxoxoxoxoxoxo';
 
   var DEFS = {
     trace: { name: 'First Trace', bpm: 128, len: 128, bass: 0, lead: 0, bassLo: 36, sec: [
@@ -290,6 +301,31 @@
       { b: [128, 144], ch: SCH, cr: 0.8, pad: 0.5, pb: 0.4, k: K1 + x(Z, 3), mel: SRIFF, md: 0.1, h: SHAT + SHAT + OFS + Z, bass: 'r_______........' + x(Z, 3),
         lv: { mel: 0.45 } }
     ] },
+    sawtooth: { name: 'Sawtooth', bpm: 144, len: 160, bass: 0, lead: 5, bassLo: 41, gate: 0.55, sec: [
+      { b: [0, 8], ch: 'Cm', arp: WARP, aq: [0.1, 0.6], h: H8 + H16, rise: [4, 4], lv: { arp: 0.8 } },
+      { b: [8, 32], ch: 'Cm Cm Ab Ab Fm G', cr: 0.8, pad: 0.5, k: x(K4, 5) + 'x...x...x...x.xx', c: BK, h: H16, o: OFF, bass: WROLL, bq: 0.8, arp: WARP,
+        lv: { o: 0.7 } },
+      { b: [32, 48], ch: WCH, cr: 0.6, pad: 0.6, pb: 0.3, k: K1, s: x('........o.......', 3) + '........o...o.xX', h: 'xoooxoooxoooxooo', bass: DRONE, bq: 0.3,
+        lead: WSLOW, lv: { lead: 0.5, bass: 0.8, h: 0.8 } },
+      { b: [48, 80], ch: WCH, pad: 0.5, cy: CY2, k: WK, s: WS, c: BK, h: H16, o: OFF, bass: WDRIVE, bq: 0.8, lead: WHA + WHB, tm: x(Z, 3) + '..........x.o.oo',
+        lv: { o: 0.8 } },
+      { b: [80, 96], ch: 'Ab Ab Fm G', cr: 0.7, pad: 1, pb: 0.5, k: K1 + K1 + Z + Z, h: OFS, s: x(Z, 3) + 'g.g.o.o.o.x.xxXX', arp: '0.2.1.3.2.4.3.5.', ao: 12,
+        bass: DRONE + DRONE + Z + Z, bq: 0.3, rise: [12, 4], lv: { k: 0.7, arp: 0.8, bass: 0.6 } },
+      { b: [96, 112], ch: WCH, pad: 0.5, cy: CY2, k: WK, s: WS, c: BK, h: H16, o: OFF, sh: SH16, bass: WDRIVE, bq: 0.9, lead: WHA, lo: 12, arp: WZ,
+        lv: { sh: 0.6, arp: 0.5 } },
+      { b: [112, 128], ch: WCH, pad: 0.6, cy: CY2, k: WK, s: WS, c: BK, h: H16, o: OFF, sh: SH16, bass: WDRIVE, bq: 0.9, lead: WHB, lo: 12, arp: WZ, ao: 12,
+        stab: '......x.......x.', tm: x(Z, 3) + '........x.x.o.oo', lv: { sh: 0.6, arp: 0.45, stab: 0.7 } },
+      // climax: one bar each, every bar a different drum pattern and register
+      { b: [128, 132], ch: 'Cm', cr: 1, pad: 0.5, k: K4, s: '....x.......xxxx', c: BK, h: H16, o: OFF, sh: SH16, bass: WDRIVE, bq: 0.9, lead: W1, lo: 12, lv: { sh: 0.6 } },
+      { b: [132, 136], ch: 'Ab', cr: 1, pad: 0.5, k: 'x.x.x.x.x.x.x...', h: 'xoxoxoxoxoxoxo..', bass: '.r.r.r.r.r.r.r..', bq: 0.9,
+        lead: 'c5 eb5 ab5 c6 eb6 c6 ab5 eb5 c5/2 ab5/2 eb5/2 r/2' },
+      { b: [136, 140], ch: 'Fm', cr: 1, pad: 0.7, k: 'x.........x.....', s: '........x...xxXX', tm: 'x..x..x.x..o....', o: OFF, bass: 'r_____r___r_____', bq: 0.7,
+        lead: 'f5/6 ab5/6 c6/4', arp: WZ, ao: 12, lv: { arp: 0.6 } },
+      { b: [140, 144], ch: 'G', cr: 1, pad: 0.5, k: K4, s: 'x.x.x.x.xxxxXXXX', h: H16, o: OFF, sh: SH16, bass: WDRIVE, bq: 0.9, lead: W4, lo: 12, rise: [0, 4],
+        lv: { sh: 0.6, s: 0.8 } },
+      { b: [144, 160], ch: WCH, cr: 0.9, pad: 0.7, pb: 0.35, k: K1 + x(Z, 3), arp: WARP, aq: [0.7, 0.1], h: H16 + H16 + H8 + OFS, bass: DRONE + DRONE + Z + Z, bq: 0.3,
+        lv: { bass: 0.6 } }
+    ] },
     menu: { name: 'Standby', bpm: 100, len: 32, bass: 0, lead: 3, bassLo: 33, pluck: 'triangle', vol: 0.5, sec: [
       { b: [0, 32], ch: 'FM7 FM7 Am7 Am7 CM7 CM7 G G', pad: 1, pb: 0.6, k: 'o.......o.......', bass: DRONE, bq: 0.2, lv: { k: 0.6, bass: 0.6 },
         mel: 'e5/6 c5/6 a4/4 r/4 g4/4 a4/8 e5/6 d5/6 c5/4 r/4 g4/4 e4/8 g5/6 e5/6 d5/4 r/4 b4/4 c5/8 d5/6 b4/6 g4/4 r/4 a4/4 b4/4 d5/4' }
@@ -300,7 +336,7 @@
   var PC = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
   var QUAL = { '': [0, 4, 7], m: [0, 3, 7], m7: [0, 3, 7, 10], M7: [0, 4, 7, 11], '7': [0, 4, 7, 10] };
   var VEL = { x: 0.8, X: 1, o: 0.5, g: 0.28 };
-  var DRUMS = { k: [vKick, 0, 0], s: [vSnare, 0, 0], c: [vClap, 0, 0], h: [vHat, 0.045, 8500, 1], o: [vHat, 0.2, 7000, -1], sh: [vHat, 0.03, 5200, -1], tm: [vTom, 0.2, 0] };
+  var DRUMS = { k: [vKick, 0, 0], s: [vSnare, 0, 0], c: [vClap, 0, 0], h: [vHat, 0.045, 8500, 1], o: [vHat, 0.2, 7000, -1], sh: [vHat, 0.03, 5200, -1], cy: [vHat, 1.4, 4500, 0], tm: [vTom, 0.2, 0] };
   function acc(s) { return s === '#' ? 1 : s === 'b' ? -1 : 0; }
   function chord(tok, tr, D) {
     var m = /^([A-G])([#b]?)(.*)$/.exec(tok), pc = (PC[m[1].toLowerCase()] + acc(m[2]) + tr + 24) % 12, iv = QUAL[m[3]] || QUAL[''];
@@ -333,8 +369,8 @@
         return s;
       }
       function at(i) { return chs[(i >> 4) % chs.length]; }
-      function add(i, f, key, d, a, b, c2, len) {
-        var ev = [f, key, d, a, b, c2]; steps[s0 + i].push(ev);
+      function add(i, f, key, d, a, b, c2, len, extra) {
+        var ev = [f, key, d, a, b, c2, extra]; steps[s0 + i].push(ev);
         if (len) longs.push({ s: s0 + i, len: len, e: ev });
       }
       function run(p, i) { var l = 1; while (i + l < ns && p[(i + l) % p.length] === '_') l++; return l; }
@@ -344,11 +380,12 @@
       if ((p = P('bass'))) for (i = 0; i < ns; i++) {
         c = p[i % p.length]; ch = at(i);
         m = c === 'r' ? 0 : c === 'R' ? 12 : c === 'f' ? 7 : c === 't' ? ch.third : -1;
-        if (m >= 0) add(i, vBass, 'bass', run(p, i) * sd * 0.9, ch.root + m, L('bass'), bq.length ? bq[0] + (bq[1] - bq[0]) * i / ns : bq);
+        if (m >= 0) add(i, vBass, 'bass', (D.gate ? run(p, i) - 1 + D.gate : run(p, i) * 0.9) * sd, ch.root + m, L('bass'), bq.length ? bq[0] + (bq[1] - bq[0]) * i / ns : bq);
       }
       if ((p = P('arp'))) for (i = 0; i < ns; i++) {
         c = p.charCodeAt(i % p.length) - 48; tn = at(i).tones;
-        if (c >= 0 && c <= 9) add(i, vPluck, 'arp', run(p, i) * sd + 0.15, tn[c % tn.length] + 12 * Math.floor(c / tn.length) + ao, 0.8 * L('arp'), (i >> 1) % 2 ? 0.4 : -0.4);
+        if (c >= 0 && c <= 9) add(i, vPluck, 'arp', run(p, i) * sd + 0.15, tn[c % tn.length] + 12 * Math.floor(c / tn.length) + ao, 0.8 * L('arp'), (i >> 1) % 2 ? 0.4 : -0.4,
+          0, sc.aq ? sc.aq[0] + (sc.aq[1] - sc.aq[0]) * i / ns : 1);
       }
       if ((p = P('stab'))) for (i = 0; i < ns; i++) {
         c = p[i % p.length];
@@ -409,7 +446,7 @@
           e[0](S, t, (L.s + L.len - i) * D.sd, e[3], e[4], e[5], (i - L.s) / L.len);
       }
     }
-    for (k = 0; k < evs.length; k++) { e = evs[k]; if (!(S.mute && S.mute.test(e[1]))) e[0](S, t, e[2], e[3], e[4], e[5]); }
+    for (k = 0; k < evs.length; k++) { e = evs[k]; if (!(S.mute && S.mute.test(e[1]))) e[0](S, t, e[2], e[3], e[4], e[5], e[6]); }
   }
   function tick() {
     var S = cur;

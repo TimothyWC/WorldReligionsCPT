@@ -10,7 +10,7 @@ const src = f => fs.readFileSync(path.join(__dirname, 'src', f), 'utf8');
 // --no-editor leaves the level editor out; --out=<dir> writes somewhere other than dist/
 const noEditor = process.argv.includes('--no-editor');
 const outArg = process.argv.find(a => a.startsWith('--out='));
-const order = ['engine.js', 'levels.js', 'demos.js', 'solver.js', 'audio.js', 'render.js', 'game.js', 'editor.js'].filter(f => !(noEditor && f === 'editor.js'));
+const order = ['engine.js', 'extras.js', 'levels.js', 'demos.js', 'solver.js', 'audio.js', 'render.js', 'game.js', 'editor.js'].filter(f => !(noEditor && f === 'editor.js'));
 const scripts = order
   .filter(f => fs.existsSync(path.join(__dirname, 'src', f)))
   .map(f => '<script>\n' + src(f).replace(/<\/script/gi, '<\\/script') + '\n</script>')

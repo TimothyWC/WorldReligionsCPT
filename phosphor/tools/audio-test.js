@@ -17,9 +17,10 @@ const SONGS = {
   carrier: { bpm: 140, len: 160, sec: [[0, 16, 'intro'], [16, 48, 'groove'], [48, 80, 'air'], [80, 144, 'drop'], [144, 160, 'outro']], loud: ['groove', 'drop'], top: 'drop' },
   overdrive: { bpm: 150, len: 192, sec: [[0, 16, 'intro'], [16, 64, 'A'], [64, 80, 'breakdown'], [80, 144, 'drop'], [144, 176, 'climax'], [176, 192, 'outro']], loud: ['A', 'drop', 'climax'], top: 'drop' },
   sidebands: { bpm: 136, len: 144, sec: [[0, 16, 'intro'], [16, 48, 'groove'], [48, 64, 'breakdown'], [64, 96, 'main'], [96, 112, 'lift'], [112, 128, 'peak'], [128, 144, 'outro']], loud: ['groove', 'main', 'peak'], top: 'main' },
+  sawtooth: { bpm: 144, len: 160, sec: [[0, 8, 'intro'], [8, 32, 'groove'], [32, 48, 'halftime'], [48, 80, 'main'], [80, 96, 'breakdown'], [96, 128, 'peak'], [128, 144, 'climax'], [144, 160, 'outro']], loud: ['groove', 'main', 'peak', 'climax'], top: 'main' },
   menu: { bpm: 100, len: 32, sec: [[0, 32, 'loop']], loud: ['loop'], top: 'loop' }
 };
-const TRACKS = ['k', 's', 'c', 'h', 'o', 'cr', 'sh', 'tm', 'bass', 'arp', 'mel', 'lead', 'pad', 'stab', 'rise'];
+const TRACKS = ['k', 's', 'c', 'h', 'o', 'cr', 'cy', 'sh', 'tm', 'bass', 'arp', 'mel', 'lead', 'pad', 'stab', 'rise'];
 
 let failures = 0;
 function check(ok, msg) { console.log((ok ? '  ok    ' : '  FAIL  ') + msg); if (!ok) failures++; }
@@ -143,7 +144,7 @@ function instrument() {
     check(res.perSecondRms[res.perSecondRms.length - 1] > 0.005, `${id} keeps playing across the loop point`);
     check(max(busy.map((b) => b.osc)) <= 14, `${id} oscillator budget: busiest section averages ${max(busy.map((b) => b.osc)).toFixed(1)} at once`);
   }
-  const levelRms = ['trace', 'carrier', 'overdrive', 'sidebands'].map((id) => full[id].rms);
+  const levelRms = ['trace', 'carrier', 'overdrive', 'sidebands', 'sawtooth'].map((id) => full[id].rms);
   check(full.menu.rms < 0.65 * min(levelRms), `menu rms ${f3(full.menu.rms)} clearly below level songs (${levelRms.map(f3).join(', ')})`);
   check(mean(full.trace.bySec.build) < mean(full.trace.bySec.main), 'trace build quieter than the main section');
   check(mean(full.carrier.bySec.air) < mean(full.carrier.bySec.drop), 'carrier half-time section quieter than the drop');
@@ -152,9 +153,13 @@ function instrument() {
   check(mean(full.sidebands.bySec.breakdown) < 0.8 * mean(full.sidebands.bySec.main), 'sidebands breakdown clearly quieter than the main section');
   check(mean(full.sidebands.bySec.lift) < mean(full.sidebands.bySec.peak), 'sidebands airy lift lighter than the peak');
   check(mean(full.sidebands.bySec.peak) >= 0.95 * mean(full.sidebands.bySec.main), 'sidebands peak at least as loud as the main section');
+  check(mean(full.sawtooth.bySec.halftime) < 0.8 * mean(full.sawtooth.bySec.main), 'sawtooth half-time tunnel clearly quieter than the main drive');
+  check(mean(full.sawtooth.bySec.breakdown) < 0.8 * mean(full.sawtooth.bySec.main), 'sawtooth breakdown clearly quieter than the main drive');
+  check(mean(full.sawtooth.bySec.peak) >= 0.95 * mean(full.sawtooth.bySec.main), 'sawtooth peak at least as loud as the main drive');
+  check(mean(full.sawtooth.bySec.outro) < 0.8 * mean(full.sawtooth.bySec.climax), 'sawtooth outro strips back after the climax');
 
   console.log('\n  mid-song starts');
-  for (const [id, secs, sb] of [['overdrive', 27, 80], ['trace', 3, 37.5], ['trace', 6, 124], ['carrier', 4, 76.25], ['trace', 3, 54.3], ['trace', 3, -2], ['sidebands', 4, 110.5], ['sidebands', 5, 140]]) {
+  for (const [id, secs, sb] of [['overdrive', 27, 80], ['trace', 3, 37.5], ['trace', 6, 124], ['carrier', 4, 76.25], ['trace', 3, 54.3], ['trace', 3, -2], ['sidebands', 4, 110.5], ['sidebands', 5, 140], ['sawtooth', 8, 126], ['sawtooth', 4, 157]]) {
     const res = await render(id, secs, sb);
     console.log(`    ${id} from beat ${sb}, ${secs}s (${res.ms}ms): peak ${f3(res.peak)} rms ${f3(res.rms)}  [${res.perSecondRms.map((v) => Math.round(v * 1000)).join(' ')}]`);
     check(res.peak < 0.95 && res.rms > 0.02, `${id}@${sb} renders, peak ${f3(res.peak)}`);
@@ -180,7 +185,7 @@ function instrument() {
 
   if (MIX) {
     console.log('\n  solo-track rms/peak (track alone through the master chain)');
-    for (const [id, sb] of [['trace', 0], ['trace', 16], ['trace', 64], ['carrier', 80], ['carrier', 48], ['overdrive', 16], ['overdrive', 80], ['overdrive', 144], ['sidebands', 0], ['sidebands', 16], ['sidebands', 64], ['sidebands', 96], ['sidebands', 112], ['menu', 0]]) {
+    for (const [id, sb] of [['trace', 0], ['trace', 16], ['trace', 64], ['carrier', 80], ['carrier', 48], ['overdrive', 16], ['overdrive', 80], ['overdrive', 144], ['sidebands', 0], ['sidebands', 16], ['sidebands', 64], ['sidebands', 96], ['sidebands', 112], ['sawtooth', 0], ['sawtooth', 8], ['sawtooth', 32], ['sawtooth', 48], ['sawtooth', 96], ['sawtooth', 112], ['sawtooth', 128], ['menu', 0]]) {
       const row = [];
       for (const tk of TRACKS) {
         const res = await render(id, 8, sb, '^(?!' + tk + '$)');

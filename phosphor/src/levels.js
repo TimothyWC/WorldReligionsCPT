@@ -486,11 +486,86 @@
     [ '......###.......................' ]
   ];
 
+
+  /* Corridor builder for flying sections. Each segment is [columns, floor, ceiling, floorStep, ceilingStep]:
+     rows below `floor` and rows from `ceiling` up are solid (0 and 9 leave that side open), and the steps
+     add a slope per column, which is how the 45-degree sawtooth tunnels are drawn.
+     `extras` are [column, row, tile] placed afterwards (row 0 is the bottom row). */
+  function corridor(segs, extras) {
+    var cols = [], rows = [], H = 9, i, x, y;
+    segs.forEach(function (sg) {
+      var f = sg[1], c = sg[2];
+      for (i = 0; i < sg[0]; i++) { cols.push([f, c]); f += sg[3] || 0; c += sg[4] || 0; }
+    });
+    for (y = H - 1; y >= 0; y--) {
+      var r = '';
+      for (x = 0; x < cols.length; x++) r += (y < cols[x][0] || y >= cols[x][1]) ? '#' : '.';
+      rows.push(r);
+    }
+    (extras || []).forEach(function (e) { var k = H - 1 - e[1]; rows[k] = rows[k].substr(0, e[0]) + e[2] + rows[k].substr(e[0] + 1); });
+    return rows;
+  }
+
+  /* Sawtooth: five zigzag trials. 144 BPM; columns per beat are 3 / 4 / 5 / 6 at 0.75x / 1x / 1.25x / 1.5x. */
+  var sawtooth = [
+    // 0-8 run-up
+    { pal: 4, rows: [ '............^^......###.........' ] },
+    // 8-16 trial 1 (1x): slalom
+    { pal: 2, rows: corridor([[8, 0, 9], [2, 5, 9], [6, 0, 9], [2, 0, 4], [6, 0, 9], [2, 3, 7], [6, 0, 9]], [[0, 1, 'Z'], [12, 7, 'c']]) },
+    // 16-24 the sawtooth tunnel
+    corridor([[4, 0, 9], [4, 3, 6, -1, -1], [4, 0, 3, 1, 1], [4, 3, 6, -1, -1], [4, 0, 3, 1, 1], [4, 0, 9], [2, 5, 9], [6, 0, 9]], [[22, 7, 'x']]),
+    // 24-32
+    corridor([[2, 0, 4], [5, 0, 9], [2, 6, 9], [5, 0, 9], [2, 0, 3], [6, 0, 9], [6, 3, 6], [4, 0, 9]], [[9, 3, 'x'], [16, 6, 'x']]),
+    // 32-48 trial 2 (0.75x): precision tunnels, two blocks tall in places
+    { pal: 3, rows: corridor([[3, 0, 9], [6, 0, 3], [3, 0, 3, 1, 1], [6, 3, 5], [3, 3, 5, 1, 1], [5, 5, 8], [4, 5, 8, -1, -1], [6, 2, 4],
+                              [4, 0, 9], [2, 4, 9], [4, 0, 9], [2, 0, 5]], [[0, 1, '1']]) },
+    // 48-56 trial 3 (1.25x): slalom
+    { pal: 5, rows: corridor([[6, 0, 9], [2, 5, 9], [6, 0, 9], [2, 0, 4], [6, 0, 9], [2, 5, 9], [6, 0, 9], [2, 0, 4], [6, 0, 9], [2, 3, 7]], [[0, 1, '3']]) },
+    // 56-64 gravity up: the same tunnel, mirrored hands
+    corridor([[4, 0, 9], [4, 3, 6, -1, -1], [4, 0, 3, 1, 1], [4, 3, 6, -1, -1], [4, 0, 3, 1, 1], [4, 0, 9], [2, 5, 9], [6, 0, 9], [2, 0, 4], [6, 0, 9]], [[0, 4, 'U']]),
+    // 64-72 back to normal, saws
+    corridor([[8, 0, 9], [2, 0, 3], [8, 0, 9], [2, 6, 9], [8, 0, 9], [2, 0, 3], [10, 0, 9]],
+             [[0, 4, 'D'], [4, 6, '*'], [14, 2, '*'], [24, 6, '*'], [34, 3, '*'], [34, 5, 'c']]),
+    // 72-80 gravity up again, tighter
+    corridor([[5, 0, 9], [2, 4, 9], [5, 0, 9], [2, 0, 5], [5, 0, 9], [2, 4, 9], [5, 0, 9], [2, 0, 5], [5, 0, 9], [2, 3, 6], [5, 0, 9]], [[0, 4, 'U']]),
+    // 80-88 breather: back on your feet
+    { pal: 0, rows: [
+      '2...............................',
+      'D...................##..........',
+      'H...........^^......##..^^......' ] },
+    // 88-96
+    [ '......o.........................',
+      '................................',
+      '.....^^^^^......_^^^............' ],
+    // 96-104 trial 4 (1.5x)
+    { pal: 4, rows: corridor([[10, 0, 9], [2, 5, 9], [10, 0, 9], [2, 0, 4], [10, 0, 9], [2, 5, 9], [10, 0, 9], [2, 0, 4]], [[0, 1, 'Z'], [0, 0, '4']]) },
+    // 104-112 the long sawtooth
+    corridor([[6, 0, 9], [5, 4, 7, -1, -1], [5, 0, 3, 1, 1], [3, 4, 7, 1, 1], [3, 6, 9, -1, -1], [5, 4, 7, -1, -1], [5, 0, 3, 1, 1], [6, 0, 9], [2, 5, 9], [8, 0, 9]]),
+    // 112-120 gravity up at full speed
+    corridor([[10, 0, 9], [2, 0, 4], [10, 0, 9], [2, 5, 9], [10, 0, 9], [2, 3, 7], [12, 0, 9]], [[0, 4, 'U'], [28, 1, 'x'], [30, 0, 'c'], [32, 1, 'x']]),
+    // 120-128 back down, close pillars
+    corridor([[8, 0, 9], [2, 6, 9], [6, 0, 9], [2, 0, 3], [6, 0, 9], [2, 6, 9], [6, 0, 9], [2, 0, 3], [14, 0, 9]], [[0, 4, 'D']]),
+    // 128-144 trial 5: a new speed every four beats
+    { pal: 1, rows: corridor(
+      [[2, 0, 9], [8, 3, 5], [2, 0, 9],                                   // 0.75x: needle tunnel
+       [4, 0, 9], [2, 5, 9], [8, 0, 9], [2, 0, 4], [8, 0, 9],             // 1.5x: two pillars
+       [3, 0, 9], [4, 3, 6, -1, -1], [4, 0, 3, 1, 1], [5, 0, 9],          // 1x, gravity up: one tooth
+       [5, 0, 9], [2, 0, 5], [5, 0, 9], [2, 4, 9], [6, 0, 9]],            // 1.25x, gravity down
+      [[0, 1, '1'], [12, 1, '4'], [36, 1, '2'], [36, 4, 'U'], [52, 1, '3'], [52, 4, 'D']]) },
+    // 144-152 outro
+    { pal: 4, rows: [
+      '2...............................',
+      'H...........^^.......###....^...' ] },
+    // 152-160
+    [ '.....^^.........................' ]
+  ];
+
   var levels = [
-    { id: 'trace', name: 'First Trace', song: 'trace', bpm: 128, diff: 'Easy', color: 0, chunks: trace },
-    { id: 'carrier', name: 'Carrier Wave', song: 'carrier', bpm: 140, diff: 'Medium', color: 1, chunks: carrier },
-    { id: 'sidebands', name: 'Sidebands', song: 'sidebands', bpm: 136, diff: 'Tricky', color: 3, chunks: sidebands },
-    { id: 'overdrive', name: 'Overdrive', song: 'overdrive', bpm: 150, diff: 'Hard', color: 5, chunks: overdrive }
+    { id: 'trace', name: 'First Trace', song: 'trace', bpm: 128, diff: 'Medium', color: 0, chunks: trace },
+    { id: 'carrier', name: 'Carrier Wave', song: 'carrier', bpm: 140, diff: 'Hard', color: 1, chunks: carrier },
+    { id: 'sidebands', name: 'Sidebands', song: 'sidebands', bpm: 136, diff: 'Tough', color: 3, chunks: sidebands },
+    { id: 'overdrive', name: 'Overdrive', song: 'overdrive', bpm: 150, diff: 'Severe', color: 5, chunks: overdrive },
+    { id: 'sawtooth', name: 'Sawtooth', song: 'sawtooth', bpm: 144, diff: 'Extreme', color: 4, chunks: sawtooth }
   ];
 
   /* Chunk pool for generated levels (the Daily). Every entry starts and ends as a hopper on the ground
@@ -509,11 +584,34 @@
       [overdrive[6], overdrive[7], reset],
       [overdrive[18], overdrive[19], reset],
       [sidebands[6], sidebands[7], sidebands[8], sidebands[9]],
-      [sidebands[12], sidebands[13]]
+      [sidebands[12], sidebands[13]],
+      [sawtooth[1], sawtooth[2], sawtooth[3], [ 'H...............' ]]
     ]
   };
 
-  var api = { levels: levels, pool: pool };
+  /* Machine-placed hazards from tools/harden.js: extra tiles per level as [x, y, tile], laid over the
+     hand-drawn chunks above. They never overwrite a hand-placed tile. */
+  function lay(chunks, list) {
+    var starts = [], x = 0, i;
+    for (i = 0; i < chunks.length; i++) { starts.push(x); x += (chunks[i].rows || chunks[i])[0].length; }
+    list.forEach(function (e) {
+      for (i = chunks.length - 1; i >= 0; i--) if (e[0] >= starts[i]) break;
+      if (i < 0) return;
+      var rows = chunks[i].rows || chunks[i], w = rows[0].length, cx = e[0] - starts[i];
+      if (cx >= w) return;
+      while (rows.length <= e[1]) rows.unshift(new Array(w + 1).join('.'));
+      var r = rows.length - 1 - e[1];
+      if (rows[r].charAt(cx) !== '.') return;
+      rows[r] = rows[r].substr(0, cx) + e[2] + rows[r].substr(cx + 1);
+    });
+  }
+  var extras = {};
+  if (typeof module !== 'undefined' && module.exports) {
+    if (!process.env.PHOSPHOR_NO_EXTRAS) { try { extras = require('./extras.js'); } catch (e) { extras = {}; } }
+  } else extras = root.PExtras || {};
+  levels.forEach(function (lv) { if (extras[lv.id]) lay(lv.chunks, extras[lv.id]); });
+
+  var api = { levels: levels, pool: pool, lay: lay };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PLevels = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -96,6 +96,17 @@ const file = 'file://' + (process.env.PHOSPHOR_DIST ? path.resolve(process.env.P
   ok(await G(() => window.__phosphor.G.s.y) > 0.8, 'a fresh press jumps');
   await page.keyboard.up('Space');
 
+  // --- L jumps too, and overlapping jump keys keep the hold alive until the last one is released
+  ok(await until(() => window.__phosphor.G.mode === 'play' && window.__phosphor.G.s.grounded && window.__phosphor.G.s.x < 10, 20000), 'back on the ground for the L test');
+  await page.keyboard.down('KeyL');
+  await page.waitForTimeout(120);
+  ok(await G(() => window.__phosphor.G.s.y) > 0.8, 'L jumps');
+  await page.keyboard.down('Space');
+  await page.keyboard.up('KeyL');
+  ok(await G(() => window.__phosphor.input.hold) === true, 'still holding while Space is down after L is released');
+  await page.keyboard.up('Space');
+  ok(await G(() => window.__phosphor.input.hold) === false, 'released once every jump key is up');
+
   // --- best progress is saved and shown on the card
   ok(await until(() => window.__phosphor.G.mode === 'dead', 20000), 'dies again');
   const best = await G(() => window.__phosphor.save.lv.trace.n);

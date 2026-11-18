@@ -237,7 +237,7 @@
   var DAILY = { def: null, L: null, date: '', ready: false };
   var NAME_A = ['Quiet', 'Split', 'Hollow', 'Bright', 'Cold', 'Loose', 'Narrow', 'Late', 'Double', 'Stray', 'Sharp', 'Slow', 'Thin', 'Hard', 'Open', 'Blind'];
   var NAME_B = ['Lattice', 'Echo', 'Carrier', 'Ripple', 'Sweep', 'Harmonic', 'Drift', 'Pulse', 'Gate', 'Envelope', 'Filter', 'Phase', 'Burst', 'Fold', 'Static', 'Decay'];
-  var DAILY_SONGS = [['trace', 128], ['carrier', 140], ['sidebands', 136], ['overdrive', 150]];
+  var DAILY_SONGS = [['trace', 128], ['carrier', 140], ['sidebands', 136], ['overdrive', 150], ['sawtooth', 144]];
 
   function rng32(a) {
     return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -625,10 +625,13 @@
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); cv.addEventListener('lostpointercapture', up);
     cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
+    // jump keys; several can be held at once, so track them by code
+    var JUMP = { Space: 1, ArrowUp: 1, KeyW: 1, KeyL: 1 }, held = {};
+    function anyHeld() { for (var c in held) return true; return false; }
     root.addEventListener('keydown', function (e) {
       var k = e.code;
-      if (k === 'Space' || k === 'ArrowUp' || k === 'KeyW') {
-        if (G.mode === 'play' || G.mode === 'dead') { e.preventDefault(); if (!e.repeat) { unlockAudio(); input.key = true; setHold(); } }
+      if (JUMP[k]) {
+        if (G.mode === 'play' || G.mode === 'dead') { e.preventDefault(); if (!e.repeat) { unlockAudio(); held[k] = 1; input.key = true; setHold(); } }
         return;
       }
       if (e.repeat) return;
@@ -643,9 +646,9 @@
       else if (k === 'KeyX') delCp();
     });
     root.addEventListener('keyup', function (e) {
-      if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') { input.key = false; setHold(); }
+      if (JUMP[e.code]) { delete held[e.code]; input.key = anyHeld(); setHold(); }
     });
-    root.addEventListener('blur', function () { input.key = false; input.ptrs = {}; input.nptr = 0; setHold(); });
+    root.addEventListener('blur', function () { held = {}; input.key = false; input.ptrs = {}; input.nptr = 0; setHold(); });
     document.addEventListener('visibilitychange', function () { if (document.hidden) { if (G.mode === 'play') pause(); else if (G.mode === 'menu') au('stopSong', 0.1); } });
     root.addEventListener('resize', R.resize);
     root.addEventListener('orientationchange', function () { setTimeout(R.resize, 250); });

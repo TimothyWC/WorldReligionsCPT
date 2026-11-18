@@ -40,6 +40,7 @@
     c.bg0 = rgba(cur.bg0, 1); c.bg1 = rgba(cur.bg1, 1);
     c.tr = rgba(cur.trace, 1); c.trGlow = rgba(cur.trace, 0.17); c.trFill = rgba(cur.trace, 0.12);
     c.trDim = rgba(cur.trace, 0.34); c.trFaint = rgba(cur.trace, 0.09); c.trGrid = rgba(cur.trace, 0.06);
+    c.trDeco = rgba(cur.trace, 0.2); c.trBack = rgba(cur.trace, 0.13); c.trInset = rgba(cur.trace, 0.3);
     c.hot = rgba(cur.hot, 1); c.hotGlow = rgba(cur.hot, 0.2); c.hotFill = rgba(cur.hot, 0.28);
     c.acc = rgba(cur.acc, 1); c.accGlow = rgba(cur.acc, 0.2); c.accFill = rgba(cur.acc, 0.22);
   }
@@ -120,6 +121,153 @@
     }
   }
 
+  /* ---------- decoration: never collides, always dimmer than anything that matters ---------- */
+  function h1(n) {
+    n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3) | 0; n = n ^ (n >>> 4); n = Math.imul(n, 0x27d4eb2d); n = n ^ (n >>> 15);
+    return (n >>> 0) / 4294967296;
+  }
+  var streakA = 0;
+
+  /* large slow shapes far behind the level; one family per colour theme */
+  function drawBackdrop(sc) {
+    var c = pal.c, theme = pal.to, par = 0.3, cellW = 6.5, beat = sc.beat, pulse = sc.pulse, i, k, a;
+    // horizon glow that breathes with the kick
+    var hg = ctx.createRadialGradient(W * 0.5, baseY, 0, W * 0.5, baseY, Math.max(W, H) * 0.6);
+    hg.addColorStop(0, rgba(cur.trace, 0.05 + pulse * 0.07)); hg.addColorStop(1, rgba(cur.trace, 0));
+    ctx.fillStyle = hg; ctx.fillRect(0, 0, W, H);
+    var x0 = cam.x * par, i0 = Math.floor((x0 - px0 / B) / cellW) - 1, i1 = Math.ceil((x0 + (W - px0) / B) / cellW) + 1;
+    var p = new Path2D();
+    for (i = i0; i <= i1; i++) {
+      var hx = h1(i * 31 + theme * 101 + 7), hy = h1(i * 17 + theme * 53 + 5), hs = h1(i * 23 + theme * 11 + 3);
+      var X = px0 + ((i + 0.15 + 0.7 * hx) * cellW - x0) * B, Y = baseY - (2.6 + 4.2 * hy - cam.y * par) * B, S = (1.1 + 1.5 * hs) * B;
+      if (theme === 0) {                       // scope faces with a slow lissajous
+        p.moveTo(X + S, Y); p.arc(X, Y, S, 0, 6.2832);
+        p.moveTo(X - S * 1.15, Y); p.lineTo(X - S * 0.85, Y); p.moveTo(X + S * 0.85, Y); p.lineTo(X + S * 1.15, Y);
+        p.moveTo(X, Y - S * 1.15); p.lineTo(X, Y - S * 0.85); p.moveTo(X, Y + S * 0.85); p.lineTo(X, Y + S * 1.15);
+        for (k = 0; k <= 28; k++) {
+          a = k / 28 * 6.2832;
+          var lx = X + Math.sin(a * 2 + beat * 0.25 + i) * S * 0.62, ly = Y + Math.sin(a * 3) * S * 0.62;
+          if (k === 0) p.moveTo(lx, ly); else p.lineTo(lx, ly);
+        }
+      } else if (theme === 1) {                // level meters rising from the horizon
+        var gy = baseY + cam.y * par * B;
+        for (k = 0; k < 4; k++) {
+          var bh = Math.floor((2 + 9 * h1(i * 7 + k * 13 + 1)) * (0.7 + 0.3 * pulse * h1(i + k * 5))), bx = X + k * B * 0.62, seg;
+          for (seg = 0; seg < bh; seg++) p.rect(bx, gy - (seg + 1) * B * 0.42, B * 0.44, B * 0.28);
+        }
+      } else if (theme === 2) {                // tall crystals
+        p.moveTo(X, Y - S * 1.5); p.lineTo(X + S * 0.55, Y); p.lineTo(X, Y + S * 1.5); p.lineTo(X - S * 0.55, Y); p.closePath();
+        p.moveTo(X, Y - S * 1.5); p.lineTo(X, Y + S * 1.5);
+        p.moveTo(X - S * 0.55, Y); p.lineTo(X, Y - S * 0.5); p.lineTo(X + S * 0.55, Y);
+      } else if (theme === 3) {                // radar arcs with a sweep
+        a = beat * 0.35 + i * 1.7;
+        for (k = 1; k <= 3; k++) { p.moveTo(X + Math.cos(a + k) * S * k * 0.36, Y + Math.sin(a + k) * S * k * 0.36); p.arc(X, Y, S * k * 0.36, a + k, a + k + 3.6); }
+        p.moveTo(X, Y); p.lineTo(X + Math.cos(-a * 1.3) * S * 1.08, Y + Math.sin(-a * 1.3) * S * 1.08);
+      } else if (theme === 4) {                // stacked chevrons, pointing the way
+        for (k = 0; k < 3; k++) { var cx2 = X + k * S * 0.5; p.moveTo(cx2 - S * 0.5, Y - S * 0.8); p.lineTo(cx2, Y); p.lineTo(cx2 - S * 0.5, Y + S * 0.8); }
+      } else {                                 // honeycomb cells
+        for (var ring = 0; ring < 2; ring++) {
+          var rr = S * (ring ? 0.55 : 1), ra = beat * (ring ? -0.12 : 0.08) + i;
+          for (k = 0; k <= 6; k++) { a = ra + k * 1.0472; if (k === 0) p.moveTo(X + Math.cos(a) * rr, Y + Math.sin(a) * rr); else p.lineTo(X + Math.cos(a) * rr, Y + Math.sin(a) * rr); }
+        }
+      }
+    }
+    ctx.globalAlpha = 0.35 + 0.65 * pal.t;
+    ctx.lineWidth = 5; ctx.strokeStyle = c.trGrid; ctx.stroke(p);
+    ctx.lineWidth = 1.5; ctx.strokeStyle = c.trBack; ctx.stroke(p);
+    ctx.globalAlpha = 1;
+  }
+
+  /* per-level ornaments, derived from the level itself so custom and daily levels get them too */
+  var decoL = null, deco = null;
+  function solidAt(L, x, y) { var g = L.grid[x], t = g && g[y]; return t === '#' || t === '=' || t === '-'; }
+  function buildDeco(L) {
+    var d = { struts: [], floaters: [], zones: [] }, i, c, y, g, t, mode = 0, zs = 0;
+    for (i = 0; i < L.gates.length; i++) {
+      var G = L.gates[i];
+      if ((G.k === 'G' || G.k === 'Z') && !mode) { mode = 1; zs = G.x; }
+      else if (G.k === 'H' && mode) { mode = 0; d.zones.push(zs - 1, G.x + 1); }
+    }
+    if (mode) d.zones.push(zs - 1, L.endX + 4);
+    function inZone(x) { for (var z = 0; z < d.zones.length; z += 2) if (x >= d.zones[z] && x <= d.zones[z + 1]) return true; return false; }
+    var lastF = -99;
+    for (c = 0; c < L.length; c++) {
+      g = L.grid[c];
+      if (g && !inZone(c)) {
+        for (y in g) {
+          t = g[y]; y = +y;
+          if (y < 1 || !(t === '#' || t === '=' || t === '-') || solidAt(L, c, y - 1)) continue;
+          var endL = !solidAt(L, c - 1, y), endR = !solidAt(L, c + 1, y);
+          if (!endL && !endR) continue;
+          var yb = t === '=' ? y + 0.5 : y, yt = 0, yy;
+          for (yy = y - 1; yy >= 0; yy--) if (solidAt(L, c, yy)) { yt = yy + 1; break; }
+          if (yb - yt >= 1.5) d.struts.push(c + (endL ? 0.2 : 0.8), yb, yt);
+        }
+      }
+      // floaters in open air above the action, never inside a flying corridor
+      if (c > 5 && c < L.length - 3 && c - lastF >= 4 && h1(c * 7 + 3) < 0.3 && !inZone(c)) {
+        var fy = 5 + Math.floor(h1(c * 13 + 1) * 4), free = true, dx, dy;
+        for (dx = -1; dx <= 1 && free; dx++) { g = L.grid[c + dx]; if (g) for (dy = -2; dy <= 2; dy++) if (g[fy + dy]) { free = false; break; } }
+        if (free) { d.floaters.push(c + 0.5, fy + 0.5, Math.floor(h1(c * 3 + 9) * 4), 0.3 + 0.24 * h1(c + 77), h1(c * 5 + 2) - 0.5); lastF = c; }
+      }
+    }
+    return d;
+  }
+
+  function drawDeco(sc) {
+    var L = sc.L, c = pal.c, i, X, Y;
+    if (decoL !== L) { decoL = L; deco = buildDeco(L); }
+    var xa = cam.x - px0 / B - 2, xb = cam.x + (W - px0) / B + 2, st = deco.struts, fl = deco.floaters;
+    // support struts under anything that floats
+    var p = new Path2D(), feet = new Path2D();
+    for (i = 0; i < st.length; i += 3) {
+      if (st[i] < xa || st[i] > xb) continue;
+      X = sx(st[i]); p.moveTo(X, sy(st[i + 1])); p.lineTo(X, sy(st[i + 2]));
+      feet.moveTo(X - B * 0.14, sy(st[i + 2])); feet.lineTo(X + B * 0.14, sy(st[i + 2]));
+    }
+    ctx.setLineDash([B * 0.14, B * 0.12]); ctx.lineWidth = Math.max(1, B * 0.035); ctx.strokeStyle = c.trDeco; ctx.stroke(p);
+    ctx.setLineDash([]); ctx.lineWidth = Math.max(1.5, B * 0.05); ctx.strokeStyle = c.trDim; ctx.stroke(feet);
+    // floaters: small frames that turn slowly and kick with the beat
+    p = new Path2D();
+    for (i = 0; i < fl.length; i += 5) {
+      if (fl[i] < xa || fl[i] > xb) continue;
+      X = sx(fl[i]); Y = sy(fl[i + 1] + Math.sin(sc.beat * 0.5 + fl[i]) * 0.12);
+      var S = B * fl[i + 3] * (1 + sc.pulse * 0.28), a = sc.beat * fl[i + 4] * 0.9 + fl[i], kind = fl[i + 2], k, ca, sa;
+      if (kind === 0 || kind === 3) {                      // square frame (kind 3: nested pair)
+        for (var n = 0; n < (kind === 3 ? 2 : 1); n++) {
+          var r = S * (n ? 0.5 : 1), aa = n ? -a * 1.4 : a;
+          for (k = 0; k <= 4; k++) { ca = Math.cos(aa + k * 1.5708 + 0.7854) * r * 1.2; sa = Math.sin(aa + k * 1.5708 + 0.7854) * r * 1.2; if (k === 0) p.moveTo(X + ca, Y + sa); else p.lineTo(X + ca, Y + sa); }
+        }
+      } else if (kind === 1) {                             // plus
+        ca = Math.cos(a) * S; sa = Math.sin(a) * S;
+        p.moveTo(X - ca, Y - sa); p.lineTo(X + ca, Y + sa); p.moveTo(X + sa, Y - ca); p.lineTo(X - sa, Y + ca);
+      } else {                                             // brackets
+        p.moveTo(X - S * 0.5, Y - S); p.lineTo(X - S, Y - S); p.lineTo(X - S, Y + S); p.lineTo(X - S * 0.5, Y + S);
+        p.moveTo(X + S * 0.5, Y - S); p.lineTo(X + S, Y - S); p.lineTo(X + S, Y + S); p.lineTo(X + S * 0.5, Y + S);
+        p.rect(X - S * 0.14, Y - S * 0.14, S * 0.28, S * 0.28);
+      }
+    }
+    ctx.lineJoin = 'miter';
+    ctx.lineWidth = B * 0.14; ctx.strokeStyle = c.trGrid; ctx.stroke(p);
+    ctx.lineWidth = Math.max(1.2, B * 0.04); ctx.strokeStyle = c.trDim; ctx.stroke(p);
+  }
+
+  /* streaks in front of everything when the level is running fast */
+  function drawStreaks(sc) {
+    var want = sc.editor ? 0 : Math.max(0, (sc.s.speed - 1) * 2);
+    streakA += (want - streakA) * (1 - Math.exp(-sc.dt * 5));
+    if (streakA < 0.03) return;
+    var p = new Path2D(), n = 14, i, span = W * 1.5;
+    for (i = 0; i < n; i++) {
+      var y = h1(i * 19 + 4) * H, len = B * (1.2 + 2.6 * h1(i * 5 + 1)) * sc.s.speed;
+      var x = ((h1(i * 11 + 2) * span - cam.x * B * (1.5 + h1(i * 3) * 0.8)) % span + span) % span - W * 0.25;
+      p.moveTo(x, y); p.lineTo(x + len, y);
+    }
+    ctx.globalAlpha = Math.min(1, streakA);
+    ctx.lineWidth = 1.5; ctx.strokeStyle = pal.c.trDeco; ctx.stroke(p);
+    ctx.globalAlpha = 1;
+  }
+
   function drawGround(sc) {
     var c = pal.c, y0 = sy(0), x, col;
     if (y0 < H + 4) {
@@ -140,6 +288,14 @@
       ctx.lineWidth = 1.5; ctx.strokeStyle = c.tr; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0);
       glow(c.trGlow, c.tr, B * 0.2, Math.max(1.5, B * 0.06));
+      // runway lamps under every beat mark; alternate ones flash on the beat
+      var bi = Math.floor(sc.beat), lampOn = new Path2D(), lampOff = new Path2D(), ls = B * 0.16;
+      for (col = c0 - (((c0 % 4) + 4) % 4); col <= c1; col += 4) {
+        x = sx(col);
+        (((col / 4 + bi) & 1) === 0 ? lampOn : lampOff).rect(x - ls / 2, y0 + B * 0.66, ls, ls);
+      }
+      ctx.fillStyle = c.trDeco; ctx.fill(lampOff);
+      ctx.fillStyle = rgba(cur.trace, 0.3 + sc.pulse * 0.7); ctx.fill(lampOn);
     }
     if (boundsA > 0.02) {
       var s = sc.s, yF = sy(s.bF), yC = sy(s.bC);
@@ -171,7 +327,8 @@
 
     // solids: fill, hatch, exposed edges
     ctx.fillStyle = c.trFill;
-    var edge = new Path2D(), hatch = new Path2D(), spikes = new Path2D();
+    var edge = new Path2D(), hatch = new Path2D(), spikes = new Path2D(), inset = new Path2D(), rivet = new Path2D(), base = new Path2D();
+    var di = B * 0.17, rv = B * 0.11;
     for (col = c0; col <= c1; col++) {
       g = L.grid[col]; if (!g) continue;
       X = sx(col);
@@ -182,18 +339,24 @@
           hatch.moveTo(X, Y + B); hatch.lineTo(X + B, Y);
           hatch.moveTo(X, Y + B * 0.5); hatch.lineTo(X + B * 0.5, Y);
           hatch.moveTo(X + B * 0.5, Y + B); hatch.lineTo(X + B, Y + B * 0.5);
-          if (!isBlock(L, col, y + 1)) { edge.moveTo(X, Y); edge.lineTo(X + B, Y); }
-          if (y > 0 && !isBlock(L, col, y - 1)) { edge.moveTo(X, Y + B); edge.lineTo(X + B, Y + B); }
-          if (!isBlock(L, col - 1, y)) { edge.moveTo(X, Y); edge.lineTo(X, Y + B); }
-          if (!isBlock(L, col + 1, y)) { edge.moveTo(X + B, Y); edge.lineTo(X + B, Y + B); }
+          var eT = !isBlock(L, col, y + 1), eB = y > 0 && !isBlock(L, col, y - 1), eL = !isBlock(L, col - 1, y), eR = !isBlock(L, col + 1, y);
+          if (eT) { edge.moveTo(X, Y); edge.lineTo(X + B, Y); inset.moveTo(X + (eL ? di : 0), Y + di); inset.lineTo(X + B - (eR ? di : 0), Y + di); }
+          if (eB) { edge.moveTo(X, Y + B); edge.lineTo(X + B, Y + B); inset.moveTo(X + (eL ? di : 0), Y + B - di); inset.lineTo(X + B - (eR ? di : 0), Y + B - di); }
+          if (eL) { edge.moveTo(X, Y); edge.lineTo(X, Y + B); inset.moveTo(X + di, Y + (eT ? di : 0)); inset.lineTo(X + di, Y + B - (eB ? di : 0)); }
+          if (eR) { edge.moveTo(X + B, Y); edge.lineTo(X + B, Y + B); inset.moveTo(X + B - di, Y + (eT ? di : 0)); inset.lineTo(X + B - di, Y + B - (eB ? di : 0)); }
+          if (eT && eL) rivet.rect(X + di - rv / 2, Y + di - rv / 2, rv, rv);
+          if (eT && eR) rivet.rect(X + B - di - rv / 2, Y + di - rv / 2, rv, rv);
+          if (eB && eL) rivet.rect(X + di - rv / 2, Y + B - di - rv / 2, rv, rv);
+          if (eB && eR) rivet.rect(X + B - di - rv / 2, Y + B - di - rv / 2, rv, rv);
+          if (!eT && !eB && !eL && !eR) { hatch.moveTo(X, Y); hatch.lineTo(X + B, Y + B); }
         } else if (t === '=' || t === '-') {
           var yy = t === '=' ? Y : Y + B * 0.5;
           ctx.fillRect(X, yy, B, B * 0.5);
           edge.rect(X, yy, B, B * 0.5);
           hatch.moveTo(X, yy + B * 0.5); hatch.lineTo(X + B * 0.5, yy);
           hatch.moveTo(X + B * 0.5, yy + B * 0.5); hatch.lineTo(X + B, yy);
-        } else if (t === '^') { spikes.moveTo(X + B * 0.1, Y + B); spikes.lineTo(X + B * 0.5, Y + B * 0.08); spikes.lineTo(X + B * 0.9, Y + B); spikes.closePath(); }
-        else if (t === 'v') { spikes.moveTo(X + B * 0.1, Y); spikes.lineTo(X + B * 0.5, Y + B * 0.92); spikes.lineTo(X + B * 0.9, Y); spikes.closePath(); }
+        } else if (t === '^') { spikes.moveTo(X + B * 0.1, Y + B); spikes.lineTo(X + B * 0.5, Y + B * 0.08); spikes.lineTo(X + B * 0.9, Y + B); spikes.closePath(); base.moveTo(X, Y + B); base.lineTo(X + B, Y + B); }
+        else if (t === 'v') { spikes.moveTo(X + B * 0.1, Y); spikes.lineTo(X + B * 0.5, Y + B * 0.92); spikes.lineTo(X + B * 0.9, Y); spikes.closePath(); base.moveTo(X, Y); base.lineTo(X + B, Y); }
         else if (t === ',') { spikes.moveTo(X + B * 0.14, Y + B); spikes.lineTo(X + B * 0.5, Y + B * 0.56); spikes.lineTo(X + B * 0.86, Y + B); spikes.closePath(); }
         else if (t === '`') { spikes.moveTo(X + B * 0.14, Y); spikes.lineTo(X + B * 0.5, Y + B * 0.44); spikes.lineTo(X + B * 0.86, Y); spikes.closePath(); }
         else if (t === '>') { spikes.moveTo(X, Y + B * 0.1); spikes.lineTo(X + B * 0.92, Y + B * 0.5); spikes.lineTo(X, Y + B * 0.9); spikes.closePath(); }
@@ -207,6 +370,10 @@
     ctx.lineWidth = wide; ctx.strokeStyle = c.trGlow; ctx.stroke(edge);
     ctx.lineWidth = thin; ctx.strokeStyle = c.tr; ctx.stroke(edge);
     ctx.lineCap = 'butt';
+    ctx.lineWidth = Math.max(1, B * 0.03); ctx.strokeStyle = c.trInset; ctx.stroke(inset);
+    ctx.fillStyle = rgba(cur.trace, 0.45 + sc.pulse * 0.55); ctx.fill(rivet);
+    // a hot base plate under spike rows, so they read as one hazard strip
+    ctx.lineWidth = B * 0.3; ctx.strokeStyle = c.hotGlow; ctx.stroke(base);
 
     ctx.lineJoin = 'round';
     ctx.fillStyle = c.hotFill; ctx.fill(spikes);
@@ -226,7 +393,11 @@
       ctx.closePath();
       ctx.fillStyle = c.hotFill; ctx.fill();
       glow(c.hotGlow, c.hot, wide, thin);
-      if (big) { ctx.beginPath(); ctx.arc(X, Y, B * 0.26, 0, 6.2832); ctx.lineWidth = thin; ctx.strokeStyle = c.hot; ctx.stroke(); }
+      if (big) {
+        ctx.beginPath(); ctx.arc(X, Y, B * 0.26, 0, 6.2832);
+        for (k = 0; k < 3; k++) { a = -rot * 1.6 + k * 2.0944; ctx.moveTo(X + Math.cos(a) * B * 0.26, Y + Math.sin(a) * B * 0.26); ctx.lineTo(X + Math.cos(a) * B * 0.56, Y + Math.sin(a) * B * 0.56); }
+        ctx.lineWidth = thin; ctx.strokeStyle = c.hot; ctx.stroke();
+      }
     }
 
     // pads, rings, cores
@@ -286,6 +457,24 @@
       ctx.setLineDash([B * 0.35, B * 0.2]); ctx.lineDashOffset = -sc.beat * B * 1.2;
       ctx.lineWidth = thin; ctx.strokeStyle = rgba(gc, 1); ctx.stroke();
       ctx.setLineDash([]);
+      if (G.k === 'U' || G.k === 'D' || (G.k >= '1' && G.k <= '4')) {
+        var ar = new Path2D(), az = B * 0.2, j, q;
+        if (G.k === 'U' || G.k === 'D') {                 // arrowheads sliding along the beam, the way you will fall
+          var dirY = G.k === 'U' ? -1 : 1;
+          for (j = 0; j < 5; j++) {
+            q = ((sc.beat * 1.5 + j * 2.1) % 10.5 + 10.5) % 10.5;
+            var ay = sy(dirY < 0 ? q : 10.5 - q);
+            for (var side = -1; side <= 1; side += 2) { var axp = X + side * B * 0.5; ar.moveTo(axp - az, ay - dirY * az); ar.lineTo(axp, ay); ar.lineTo(axp + az, ay - dirY * az); }
+          }
+        } else {                                           // chevrons: more of them for more speed, pointing back for slow
+          var cnt = G.k === '4' ? 3 : (G.k === '3' ? 2 : 1), dirX = G.k === '1' ? -1 : 1, osc = Math.sin(sc.beat * 6.2832) * B * 0.06;
+          for (var rowY = 1.5; rowY < 9; rowY += 3) {
+            if (Math.abs(rowY - (G.row + 3.5)) < 0.9) continue;
+            for (j = 0; j < cnt; j++) { var cxg = X + dirX * (B * 0.34 + j * B * 0.3 + osc), cyg = sy(rowY); ar.moveTo(cxg - dirX * az, cyg - az * 1.3); ar.lineTo(cxg, cyg); ar.lineTo(cxg - dirX * az, cyg + az * 1.3); }
+          }
+        }
+        ctx.lineWidth = thin; ctx.strokeStyle = rgba(gc, 0.8); ctx.stroke(ar);
+      }
       var ty = sy(G.row + 0.5 + (G.k === 'G' || G.k === 'Z' ? 0 : 3)), tw = ctx.measureText(info.label).width + B * 0.4, thh = B * 0.56;
       ctx.fillStyle = c.bg0; ctx.fillRect(X - tw / 2, ty - thh / 2, tw, thh);
       ctx.lineWidth = thin; ctx.strokeStyle = rgba(gc, 1); ctx.strokeRect(X - tw / 2, ty - thh / 2, tw, thh);
@@ -419,9 +608,12 @@
     var shx = 0, shy = 0;
     if (sc.shake > 0) { shx = (Math.random() - 0.5) * sc.shake * B * 0.5; shy = (Math.random() - 0.5) * sc.shake * B * 0.5; }
     drawBackground(sc);
+    drawBackdrop(sc);
     ctx.translate(shx, shy);
     drawGround(sc);
+    drawDeco(sc);
     drawTiles(sc);
+    drawStreaks(sc);
     drawTrail(sc);
     drawParticles(sc);
     drawPlayer(sc);

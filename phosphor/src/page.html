@@ -96,7 +96,8 @@ h1 {
   text-shadow: 0 0 22px var(--line), 0 0 2px var(--trace);
 }
 .sub { margin: 0; font: 13px/1.5 var(--f-data); letter-spacing: 0.06em; color: var(--dim); max-width: 46ch; }
-.levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .card {
   background: var(--panel); border: 1px solid var(--line); padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px;
   min-width: 0; cursor: pointer; position: relative; transition: border-color 0.15s;
@@ -146,7 +147,6 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .card { padding: 10px 12px 12px; gap: 7px; }
   .card h2 { font-size: 17px; }
-  .card.daily { grid-column: 1 / -1; }
   .prog.practice, .foot .keys { display: none; }
   .prog { grid-template-columns: 3.8em 1fr 2.8em; gap: 6px; }
   .card-head, .card-meta { font-size: 11px; letter-spacing: 0.08em; }
@@ -160,8 +160,9 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   #menu { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px 16px; }
   .foot { grid-column: 2; grid-row: 1; flex-wrap: nowrap; gap: 6px; }
   .foot button { padding: 10px; font-size: 11px; letter-spacing: 0.06em; min-height: 38px; }
-  .levels { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-  .card { padding: 10px 12px 12px; gap: 7px; }
+  .levels { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .card { padding: 8px 12px 10px; gap: 6px; }
+  .card-meta { display: none; }
   .card h2 { font-size: 17px; }
   .card-head, .card-meta { font-size: 11px; letter-spacing: 0.06em; }
   .prog { grid-template-columns: 3.8em 1fr 2.8em; gap: 6px; }
@@ -254,9 +255,9 @@ kbd { font: 12px/1 var(--f-data); border: 1px solid var(--line); padding: 2px 6p
   <section id="how" class="screen panel" hidden aria-labelledby="howTitle">
     <h2 id="howTitle">How to play</h2>
     <ul class="how">
-      <li><b>Jump:</b> tap, click, or press <kbd>Space</kbd>. Hold to keep jumping. One jump lasts exactly one beat.</li>
+      <li><b>Jump:</b> tap, click, or press <kbd>Space</kbd>, <kbd>L</kbd>, <kbd>W</kbd> or <kbd>Up</kbd>. Hold to keep jumping. One jump lasts exactly one beat.</li>
       <li><b>Pads</b> launch you on contact. <b>Rings</b> give a second jump if you tap while touching them.</li>
-      <li><b>Gates</b> change how you move. <b>FLY</b>: hold to climb, release to sink. <b>ZIG</b>: hold to rise, release to dive. <b>G UP</b> flips gravity. Number gates change speed.</li>
+      <li><b>Gates</b> change how you move. <b>FLY</b>: hold to climb, release to sink. <b>ZIG</b> (the wave): hold to rise, release to dive, always at 45 degrees. <b>G UP</b> flips gravity, and flips your controls while flying. Number gates change speed.</li>
       <li>Anything in the <span class="h">hot colour</span> ends the run. So does hitting a wall.</li>
       <li><b>Practice</b> drops checkpoints so you can learn a level one section at a time.</li>
       <li><b>Cores</b> are three optional pickups per level, usually off the safe path.</li>
